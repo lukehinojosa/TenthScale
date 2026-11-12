@@ -1,6 +1,7 @@
 #include "flight/BuildScene.h"
 
 #include <cmath>
+#include <cstdio>
 
 #include <imgui.h>
 #include <raymath.h>
@@ -18,6 +19,8 @@ namespace tenth
         constexpr float CLICK_SLOP = 5.0f; // pixels the mouse may move between press and release and still count as a click
         constexpr float SNAP_RADIUS = 60.0f; // pixels from a node that the held parts snap to it
         constexpr size_t UNDO_LIMIT = 100;
+        constexpr double ANGLE_STEP = 15.0 * DEG2RAD; // side-mounted parts snap round the rocket in these steps
+        constexpr int MAX_SYMMETRY = 4;
         constexpr Color GROUND_COLOR = { 52, 58, 52, 255 };
         constexpr Color PLATE_COLOR = { 96, 100, 108, 255 };
         constexpr Color PLATE_EDGE_COLOR = { 230, 180, 40, 255 };
@@ -111,13 +114,18 @@ namespace tenth
         return closest;
     }
 
-    // The free node nearest the mouse on screen that the held parts fit, if one is close enough
-    std::optional<BuildScene::Snap> BuildScene::findSnap() const
+    std::optional<BuildScene::Snap> BuildScene::findSnap(Ray ray) const
     {
         if (mHeld.empty() || mDesign.empty() || !mouseOverViewport())
         {
             return std::nullopt;
         }
+        return mHeld.part(0).pDefinition->mountsRadially ? findRadialSnap(ray) : findStackSnap();
+    }
+
+    // The free node nearest the mouse on screen that the held parts fit, if one is close enough
+    std::optional<BuildScene::Snap> BuildScene::findStackSnap() const
+    {
         const Vector3 offset = designOffset();
         const Vector2 mouse = GetMousePosition();
         std::optional<Snap> best;
@@ -137,12 +145,65 @@ namespace tenth
                 if (distance < bestDistance)
                 {
                     bestDistance = distance;
-                    const Vec3d rootCentre = mDesign.stackPosition(i, node, *mHeld.part(0).pDefinition);
-                    best = Snap{ i, node, Vector3Add(toRaylib(rootCentre), offset) };
+                    Snap snap;
+                    snap.parent = i;
+                    snap.node = node;
+                    best = snap;
                 }
             }
         }
         return best;
+    }
+
+    // The nearest part under the mouse whose side takes the held parts, and the angle and height of that spot
+    std::optional<BuildScene::Snap> BuildScene::findRadialSnap(Ray ray) const
+    {
+        const Vector3 offset = designOffset();
+        std::optional<Snap> best;
+        float bestDistance = 0.0f;
+        for (PartIndex i = 0; i < mDesign.partCount(); i++)
+        {
+            if (!mDesign.canAttachDesignRadial(i, mHeld))
+            {
+                continue;
+            }
+            const PlacedPart& placed = mDesign.part(i);
+            const Vector3 centre = Vector3Add(toRaylib(placed.position), offset);
+            const RayCollision hit = GetRayCollisionBox(ray, partBounds(*placed.pDefinition, centre, (float)placed.angle));
+            if (!hit.hit || (best.has_value() && hit.distance >= bestDistance))
+            {
+                continue;
+            }
+            bestDistance = hit.distance;
+            const double angle = std::atan2((double)hit.point.x - centre.x, (double)hit.point.z - centre.z);
+            Snap snap;
+            snap.parent = i;
+            snap.radial = true;
+            snap.angle = std::round(angle / ANGLE_STEP) * ANGLE_STEP;
+            snap.height = (double)hit.point.y - centre.y;
+            best = snap;
+        }
+        return best;
+    }
+
+    std::vector<PartIndex> BuildScene::applySnap(RocketDesign& design, const Snap& snap) const
+    {
+        if (snap.radial)
+        {
+            return design.attachDesignRadial(snap.parent, snap.angle, snap.height, mHeld, mSymmetry);
+        }
+        const PartIndex root = design.attachDesign(snap.parent, snap.node, mHeld);
+        return root == NO_PART ? std::vector<PartIndex>{} : std::vector<PartIndex>{ root };
+    }
+
+    bool BuildScene::sameSymmetry(PartIndex a, PartIndex b) const
+    {
+        if (a == NO_PART || b == NO_PART || a >= mDesign.partCount() || b >= mDesign.partCount())
+        {
+            return false;
+        }
+        const int group = mDesign.part(a).symmetryGroup;
+        return a == b || (group != 0 && group == mDesign.part(b).symmetryGroup);
     }
 
     void BuildScene::onUpdate(double frameDt, double /*alpha*/)
@@ -162,7 +223,11 @@ namespace tenth
 
     void BuildScene::updateHeld(Ray ray)
     {
-        mSnap = findSnap();
+        if (IsKeyPressed(KEY_X))
+        {
+            mSymmetry = mSymmetry % MAX_SYMMETRY + 1;
+        }
+        mSnap = findSnap(ray);
         mOverPlate = false;
         if (mDesign.empty())
         {
@@ -204,7 +269,8 @@ namespace tenth
             {
                 pushUndo();
             }
-            mSelected = mDesign.attachDesign(mSnap->parent, mSnap->node, mHeld);
+            const std::vector<PartIndex> roots = applySnap(mDesign, *mSnap);
+            mSelected = roots.empty() ? NO_PART : roots.front();
         }
         else if (canStartRocket() && mOverPlate)
         {
@@ -237,7 +303,7 @@ namespace tenth
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && mPressedPart != NO_PART && moved)
         {
             pushUndo();
-            mHeld = mDesign.extract(mPressedPart);
+            mHeld = mDesign.extractWithSymmetry(mPressedPart);
             mHeldFromPanel = false;
             mPressedPart = NO_PART;
             mPressedInViewport = false;
@@ -284,6 +350,10 @@ namespace tenth
         {
             deleteSelected();
         }
+        else if (IsKeyPressed(KEY_X))
+        {
+            mSymmetry = mSymmetry % MAX_SYMMETRY + 1;
+        }
     }
 
     void BuildScene::pushUndo()
@@ -327,7 +397,7 @@ namespace tenth
             return;
         }
         pushUndo();
-        mDesign.remove(mSelected);
+        mDesign.removeWithSymmetry(mSelected);
         mSelected = NO_PART;
     }
 
@@ -349,11 +419,11 @@ namespace tenth
         {
             const PlacedPart& placed = mDesign.part(i);
             Color color = categoryColor(placed.pDefinition->category);
-            if (i == mHovered)
+            if (sameSymmetry(i, mHovered))
             {
                 color = ColorBrightness(color, 0.25f);
             }
-            const Color outline = i == mSelected ? SELECTED_OUTLINE : ColorBrightness(color, -0.5f);
+            const Color outline = sameSymmetry(i, mSelected) ? SELECTED_OUTLINE : ColorBrightness(color, -0.5f);
             drawPart(*placed.pDefinition, Vector3Add(toRaylib(placed.position), offset), (float)placed.angle, color, outline);
         }
 
@@ -363,7 +433,8 @@ namespace tenth
         }
 
         // Green markers on every free node the held parts fit, the snapped one larger
-        for (PartIndex i = 0; i < mDesign.partCount(); i++)
+        const bool heldIsRadial = mHeld.part(0).pDefinition->mountsRadially;
+        for (PartIndex i = 0; i < mDesign.partCount() && !heldIsRadial; i++)
         {
             const PlacedPart& placed = mDesign.part(i);
             const Vector3 centre = Vector3Add(toRaylib(placed.position), offset);
@@ -377,29 +448,39 @@ namespace tenth
             }
         }
 
-        // A see-through copy shows where the held parts would land, or follows the mouse in red where they can't go
-        const float rootHalfHeight = (float)mHeld.part(0).pDefinition->shape.height * 0.5f;
-        bool valid = true;
-        Vector3 rootPosition = {};
+        // A see-through copy shows where the held parts would land, every symmetry copy included
+        auto drawGhost = [](const PlacedPart& placed, Vector3 position, bool valid)
+        {
+            const Color color = valid ? categoryColor(placed.pDefinition->category) : INVALID_COLOR;
+            drawPart(*placed.pDefinition, position, (float)placed.angle, ColorAlpha(color, 0.45f),
+                     ColorAlpha(ColorBrightness(color, -0.4f), 0.8f));
+        };
         if (mSnap.has_value())
         {
-            rootPosition = mSnap->rootPosition;
+            // Attaching to a copy of the rocket places the parts exactly as a drop would
+            RocketDesign preview = mDesign;
+            applySnap(preview, *mSnap);
+            for (PartIndex i = mDesign.partCount(); i < preview.partCount(); i++)
+            {
+                drawGhost(preview.part(i), Vector3Add(toRaylib(preview.part(i).position), offset), true);
+            }
+            return;
         }
-        else if (canStartRocket() && mOverPlate)
+
+        // Otherwise it sits centred on an empty plate, or follows the mouse in red where it can't go
+        const bool valid = canStartRocket() && mOverPlate;
+        Vector3 rootPosition = mHeldPoint;
+        if (valid)
         {
             rootPosition = { 0.0f, (float)-mHeld.lowestPoint(), 0.0f };
         }
-        else
+        else if (mDesign.empty())
         {
-            valid = false;
-            rootPosition = mDesign.empty() ? Vector3{ mHeldPoint.x, rootHalfHeight, mHeldPoint.z } : mHeldPoint;
+            rootPosition.y = (float)mHeld.part(0).pDefinition->shape.height * 0.5f;
         }
         for (PartIndex i = 0; i < mHeld.partCount(); i++)
         {
-            const PlacedPart& placed = mHeld.part(i);
-            const Color color = valid ? categoryColor(placed.pDefinition->category) : INVALID_COLOR;
-            drawPart(*placed.pDefinition, Vector3Add(toRaylib(placed.position), rootPosition), (float)placed.angle,
-                     ColorAlpha(color, 0.45f), ColorAlpha(ColorBrightness(color, -0.4f), 0.8f));
+            drawGhost(mHeld.part(i), Vector3Add(toRaylib(mHeld.part(i).position - mHeld.part(0).position), rootPosition), valid);
         }
     }
 
@@ -414,7 +495,7 @@ namespace tenth
 
         const ImGuiStyle& style = ImGui::GetStyle();
         const float footerHeight =
-            ImGui::GetTextLineHeightWithSpacing() * 4.0f + ImGui::GetFrameHeightWithSpacing() * 3.0f + style.ItemSpacing.y * 2.0f;
+            ImGui::GetTextLineHeightWithSpacing() * 4.0f + ImGui::GetFrameHeightWithSpacing() * 4.0f + style.ItemSpacing.y * 2.0f;
         ImGui::BeginChild("PartList", { 0.0f, -footerHeight });
         drawPartList();
         ImGui::EndChild();
@@ -449,13 +530,18 @@ namespace tenth
         {
             ImGui::SetTooltip(canStartRocket() ? "Drop it on the build plate" : "A rocket starts from a command pod");
         }
-        else if (mHeldFromPanel)
-        {
-            ImGui::SetTooltip("Bring it to a green marker to attach");
-        }
         else
         {
-            ImGui::SetTooltip("Bring it to a green marker, or release to delete");
+            const bool radial = mHeld.part(0).pDefinition->mountsRadially;
+            const char* target = radial ? "against the side of a part" : "to a green marker";
+            if (mHeldFromPanel)
+            {
+                ImGui::SetTooltip("Bring it %s to attach", target);
+            }
+            else
+            {
+                ImGui::SetTooltip("Bring it %s, or release to delete", target);
+            }
         }
     }
 
@@ -506,8 +592,19 @@ namespace tenth
             ImGui::TextDisabled(mDesign.empty() ? "Drag a pod onto the plate to start" : "Click a part to select it");
         }
         ImGui::Text("Parts: %d   Mass: %.2f t", mDesign.partCount(), mDesign.totalMass() / 1000.0);
-        ImGui::TextDisabled("Right-drag orbit, wheel zoom, W/S up/down");
-        ImGui::TextDisabled("Drag a part to move it, Del deletes it");
+        ImGui::TextDisabled("Right-drag orbit, W/S lift, wheel zoom");
+        ImGui::TextDisabled("Drag to move, Del deletes, X symmetry");
+
+        // Side-mounted parts are placed this many times, evenly around the rocket
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Symmetry");
+        for (int copies = 1; copies <= MAX_SYMMETRY; copies++)
+        {
+            ImGui::SameLine();
+            char label[8];
+            std::snprintf(label, sizeof(label), "%dx", copies);
+            ImGui::RadioButton(label, &mSymmetry, copies);
+        }
 
         const float third = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
         ImGui::BeginDisabled(mUndo.empty());

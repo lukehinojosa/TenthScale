@@ -32,6 +32,7 @@ namespace tenth
         Node parentNode = Node::Bottom; // stack parts: which of the parent's nodes it's on
         double angle = 0.0; // radial parts: radians around the parent's axis, 0 facing +Z
         Vec3d position;
+        int symmetryGroup = 0; // copies placed together in symmetry share a number; 0 for a part on its own
     };
 
     // A rocket as built on the build screen: a tree of parts hanging off one root. A parent always comes before its
@@ -66,6 +67,23 @@ namespace tenth
         RocketDesign extract(PartIndex index);
 
         bool canAttachRadial(PartIndex parent, const PartDefinition& definition) const;
+
+        // Where a part's centre would go against the parent's side; height is kept within the parent's height
+        Vec3d radialPosition(PartIndex parent, double angle, double height, const PartDefinition& definition) const;
+
+        bool canAttachDesignRadial(PartIndex parent, const RocketDesign& subassembly) const;
+
+        // Places copies of the subassembly evenly around the parent, starting at angle, each turned to face outward.
+        // Returns where each copy's root ended up, or nothing if it can't go there.
+        std::vector<PartIndex> attachDesignRadial(PartIndex parent, double angle, double height, const RocketDesign& subassembly,
+                                                  int copies);
+
+        // The part and every copy placed in symmetry with it
+        std::vector<PartIndex> symmetryGroup(PartIndex index) const;
+
+        // As remove() and extract(), but the part's symmetry copies go too. The extracted copy is no longer grouped.
+        int removeWithSymmetry(PartIndex index);
+        RocketDesign extractWithSymmetry(PartIndex index);
 
         // height is measured from the parent's centre and kept within the parent's height. NO_PART if it can't go there.
         PartIndex attachRadial(PartIndex parent, double angle, double height, const PartDefinition& definition);

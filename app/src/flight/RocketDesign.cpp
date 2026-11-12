@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace tenth
 {
@@ -166,12 +167,8 @@ namespace tenth
         return definition.mountsRadially && parentDefinition.acceptsRadial && parentDefinition.shape.kind == ShapeKind::Round;
     }
 
-    PartIndex RocketDesign::attachRadial(PartIndex parent, double angle, double height, const PartDefinition& definition)
+    Vec3d RocketDesign::radialPosition(PartIndex parent, double angle, double height, const PartDefinition& definition) const
     {
-        if (!canAttachRadial(parent, definition))
-        {
-            return NO_PART;
-        }
         const PlacedPart& parentPart = part(parent);
         const PartShape& parentShape = parentPart.pDefinition->shape;
         const double halfHeight = parentShape.height * 0.5;
@@ -181,15 +178,137 @@ namespace tenth
         const PartShape& shape = definition.shape;
         const double ownDepth = shape.kind == ShapeKind::Box ? shape.span * 0.5 : std::max(shape.topDiameter, shape.bottomDiameter) * 0.5;
         const double out = radiusAt(parentShape, clampedHeight) + ownDepth;
+        return parentPart.position + Vec3d{ std::sin(angle) * out, clampedHeight, std::cos(angle) * out };
+    }
 
+    PartIndex RocketDesign::attachRadial(PartIndex parent, double angle, double height, const PartDefinition& definition)
+    {
+        if (!canAttachRadial(parent, definition))
+        {
+            return NO_PART;
+        }
         PlacedPart placed;
         placed.pDefinition = &definition;
         placed.parent = parent;
         placed.attachment = Attachment::Radial;
         placed.angle = angle;
-        placed.position = parentPart.position + Vec3d{ std::sin(angle) * out, clampedHeight, std::cos(angle) * out };
+        placed.position = radialPosition(parent, angle, height, definition);
         mParts.push_back(placed);
         return partCount() - 1;
+    }
+
+    bool RocketDesign::canAttachDesignRadial(PartIndex parent, const RocketDesign& subassembly) const
+    {
+        return !subassembly.empty() && canAttachRadial(parent, *subassembly.part(0).pDefinition);
+    }
+
+    std::vector<PartIndex> RocketDesign::attachDesignRadial(PartIndex parent, double angle, double height, const RocketDesign& subassembly,
+                                                            int copies)
+    {
+        std::vector<PartIndex> roots;
+        if (!canAttachDesignRadial(parent, subassembly) || copies < 1)
+        {
+            return roots;
+        }
+
+        int group = 0;
+        if (copies > 1)
+        {
+            for (const PlacedPart& placed : mParts)
+            {
+                group = std::max(group, placed.symmetryGroup);
+            }
+            group++;
+        }
+
+        const PlacedPart& subRoot = subassembly.part(0);
+        for (int copy = 0; copy < copies; copy++)
+        {
+            // Each copy turns about the vertical axis, so whatever hangs off the root swings around with it
+            const double copyAngle = angle + 2.0 * std::numbers::pi * copy / copies;
+            const double turn = copyAngle - subRoot.angle;
+            const double c = std::cos(turn);
+            const double s = std::sin(turn);
+            const Vec3d rootPosition = radialPosition(parent, copyAngle, height, *subRoot.pDefinition);
+            const PartIndex first = partCount();
+            for (PartIndex i = 0; i < subassembly.partCount(); i++)
+            {
+                PlacedPart placed = subassembly.part(i);
+                const Vec3d local = placed.position - subRoot.position;
+                placed.position = rootPosition + Vec3d{ local.x * c + local.z * s, local.y, -local.x * s + local.z * c };
+                placed.angle += turn;
+                if (i == 0)
+                {
+                    placed.parent = parent;
+                    placed.attachment = Attachment::Radial;
+                    placed.angle = copyAngle;
+                    placed.symmetryGroup = group;
+                }
+                else
+                {
+                    placed.parent += first;
+                }
+                mParts.push_back(placed);
+            }
+            roots.push_back(first);
+        }
+        return roots;
+    }
+
+    std::vector<PartIndex> RocketDesign::symmetryGroup(PartIndex index) const
+    {
+        const int group = part(index).symmetryGroup;
+        if (group == 0)
+        {
+            return { index };
+        }
+        std::vector<PartIndex> members;
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            if (mParts[i].symmetryGroup == group)
+            {
+                members.push_back(i);
+            }
+        }
+        return members;
+    }
+
+    // Removing from the highest index down leaves the lower ones in place, since a part's branch only holds later parts
+    int RocketDesign::removeWithSymmetry(PartIndex index)
+    {
+        if (index < 0 || index >= partCount())
+        {
+            return 0;
+        }
+        const std::vector<PartIndex> members = symmetryGroup(index);
+        int removed = 0;
+        for (auto it = members.rbegin(); it != members.rend(); ++it)
+        {
+            removed += remove(*it);
+        }
+        return removed;
+    }
+
+    RocketDesign RocketDesign::extractWithSymmetry(PartIndex index)
+    {
+        if (index < 0 || index >= partCount())
+        {
+            return {};
+        }
+        const int group = part(index).symmetryGroup;
+        RocketDesign subassembly = extract(index);
+        if (group != 0)
+        {
+            subassembly.mParts[0].symmetryGroup = 0;
+            for (PartIndex i = partCount() - 1; i >= 0; i--)
+            {
+                if (i < partCount() && mParts[i].symmetryGroup == group)
+                {
+                    remove(i);
+                }
+            }
+        }
+        return subassembly;
     }
 
     int RocketDesign::remove(PartIndex index)

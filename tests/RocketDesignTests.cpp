@@ -1,8 +1,10 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <numbers>
 #include <set>
 #include <string>
+#include <vector>
 
 #include <flight/PartCatalog.h>
 #include <flight/RocketDesign.h>
@@ -204,4 +206,74 @@ TEST_CASE("A subassembly attaches only by a node its root still has free")
     CHECK(whole.empty());
     CHECK(everything.partCount() == 3);
     CHECK(everything.part(0).pDefinition->id == "pod");
+}
+
+TEST_CASE("Symmetry places copies evenly around the parent and groups them")
+{
+    RocketDesign design = simpleStack();
+    RocketDesign fin;
+    fin.setRoot(def("fin"));
+
+    const std::vector<PartIndex> roots = design.attachDesignRadial(1, 0.0, 0.0, fin, 3);
+    REQUIRE(roots.size() == 3);
+    const double out = 0.625 + 0.25;
+    for (int k = 0; k < 3; k++)
+    {
+        const double angle = 2.0 * std::numbers::pi * k / 3.0;
+        const PlacedPart& placed = design.part(roots[k]);
+        CHECK(placed.angle == doctest::Approx(angle));
+        CHECK(placed.position.x == doctest::Approx(std::sin(angle) * out));
+        CHECK(placed.position.z == doctest::Approx(std::cos(angle) * out));
+        CHECK(placed.position.y == doctest::Approx(-1.0));
+        CHECK(placed.parent == 1);
+        CHECK(placed.symmetryGroup != 0);
+        CHECK(placed.symmetryGroup == design.part(roots[0]).symmetryGroup);
+    }
+    CHECK(design.symmetryGroup(roots[1]) == roots);
+    CHECK(design.centerOfMass().x == doctest::Approx(0.0));
+    CHECK(design.centerOfMass().z == doctest::Approx(0.0));
+
+    // A second set gets its own group, and a single part stays ungrouped
+    const std::vector<PartIndex> legs = design.attachDesignRadial(2, 0.0, 0.0, RocketDesign(), 2);
+    CHECK(legs.empty());
+    RocketDesign leg;
+    leg.setRoot(def("landing-leg"));
+    const std::vector<PartIndex> pair = design.attachDesignRadial(2, 0.5, 0.0, leg, 2);
+    REQUIRE(pair.size() == 2);
+    CHECK(design.part(pair[0]).symmetryGroup != design.part(roots[0]).symmetryGroup);
+    CHECK(design.part(pair[1]).angle == doctest::Approx(0.5 + std::numbers::pi));
+    const std::vector<PartIndex> single = design.attachDesignRadial(2, 1.0, 0.0, leg, 1);
+    CHECK(design.part(single[0]).symmetryGroup == 0);
+    CHECK(design.symmetryGroup(single[0]) == single);
+
+    CHECK(design.attachDesignRadial(1, 0.0, 0.0, fin, 0).empty());
+}
+
+TEST_CASE("Removing or picking up one symmetry copy takes the whole set")
+{
+    RocketDesign design = simpleStack();
+    RocketDesign fin;
+    fin.setRoot(def("fin"));
+    const std::vector<PartIndex> fins = design.attachDesignRadial(2, 0.0, 0.0, fin, 4);
+    design.attachStack(0, Node::Top, def("parachute"));
+    REQUIRE(design.partCount() == 8);
+
+    RocketDesign copy = design;
+    CHECK(copy.removeWithSymmetry(fins[2]) == 4);
+    CHECK(copy.partCount() == 4);
+    CHECK(copy.part(3).pDefinition->id == "parachute");
+
+    const RocketDesign held = design.extractWithSymmetry(fins[1]);
+    REQUIRE(held.partCount() == 1);
+    CHECK(held.part(0).symmetryGroup == 0);
+    CHECK(held.part(0).pDefinition->id == "fin");
+    CHECK(design.partCount() == 4);
+    for (PartIndex i = 0; i < design.partCount(); i++)
+    {
+        CHECK(design.part(i).pDefinition->id != "fin");
+    }
+
+    // Removing an ungrouped part takes only its branch, as remove() does
+    CHECK(design.removeWithSymmetry(3) == 1);
+    CHECK(design.partCount() == 3);
 }

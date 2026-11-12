@@ -24,12 +24,14 @@ namespace tenth
         void onGui() override;
 
     private:
-        // A free node on the rocket that the held parts would attach to
+        // Where the held parts would attach: a free stack node, or a spot on a part's side
         struct Snap
         {
             PartIndex parent = NO_PART;
-            Node node = Node::Bottom;
-            Vector3 rootPosition = {}; // where the held root's centre would go, in the world
+            bool radial = false;
+            Node node = Node::Bottom; // stack
+            double angle = 0.0; // radial
+            double height = 0.0; // radial, from the parent's centre
         };
 
         void updateHeld(Ray ray);
@@ -42,7 +44,14 @@ namespace tenth
 
         bool mouseOverViewport() const;
         bool canStartRocket() const;
-        std::optional<Snap> findSnap() const;
+        std::optional<Snap> findSnap(Ray ray) const;
+        std::optional<Snap> findStackSnap() const;
+        std::optional<Snap> findRadialSnap(Ray ray) const;
+
+        // Attaches the held parts at the snap and returns where each copy's root went
+        std::vector<PartIndex> applySnap(RocketDesign& design, const Snap& snap) const;
+
+        bool sameSymmetry(PartIndex a, PartIndex b) const;
 
         // Lifts the rocket so its lowest point rests on the plate
         Vector3 designOffset() const;
@@ -71,6 +80,8 @@ namespace tenth
         PartIndex mPressedPart = NO_PART;
         Vector2 mPressPosition = {};
         bool mPressedInViewport = false;
+
+        int mSymmetry = 1; // copies placed around the rocket for side-mounted parts
 
         std::vector<RocketDesign> mUndo;
         std::vector<RocketDesign> mRedo;
