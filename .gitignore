@@ -1,0 +1,17 @@
+# Build output
+build/
+out/
+cmake-build-*/
+.cpm-cache/
+
+# IDEs
+.idea/
+.vs/
+.vscode/
+*.user
+
+# Runtime files
+imgui.ini
+
+# Local tooling
+.claude/

@@ -1,0 +1,17 @@
+# Runtime settings: edit and re-run, no rebuild needed. Missing keys keep their built-in defaults.
+# Override the path with the SANDBOX_CONFIG environment variable.
+
+window:
+  title: "CppTemplate Sandbox"
+  width: 1280
+  height: 720
+
+physics:
+  fixed_hz: 50 # physics steps per second, independent of frame rate
+  restitution: 0.6 # bounciness of the cube on the ground (0 to 1)
+
+audio:
+  master_volume: 0.8 # 0 to 1
+
+net:
+  relay_url: "ws://localhost:9000"

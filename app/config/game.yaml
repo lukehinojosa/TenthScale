@@ -1,0 +1,13 @@
+# Runtime settings: edit and re-run, no rebuild needed. Missing keys keep their built-in defaults.
+# Override the path with the GAME_CONFIG environment variable.
+
+window:
+  title: "Game"
+  width: 1280
+  height: 720
+
+physics:
+  fixed_hz: 50 # physics steps per second, independent of frame rate
+
+audio:
+  master_volume: 0.8 # 0 to 1
