@@ -3,7 +3,8 @@
 #include <optional>
 #include <utility>
 
-Game::Game(engine::GameConfig config) : engine::Game(std::move(config)), mBuildScene(getCamera()), mFlightScene(mSolarSystem)
+Game::Game(engine::GameConfig config)
+    : engine::Game(std::move(config)), mBuildScene(getCamera(), mCatalog, mDesign), mFlightScene(mSolarSystem)
 {
 }
 

@@ -4,9 +4,11 @@
 
 #include "flight/BuildScene.h"
 #include "flight/FlightScene.h"
+#include "flight/PartCatalog.h"
+#include "flight/RocketDesign.h"
 #include "solar/CircularSolarSystem.h"
 
-// Owns the Solar System and the scenes, and forwards each engine hook to whichever scene is current
+// Owns the Solar System, the parts, the rocket being built, and the scenes; forwards engine hooks to the current scene
 class Game : public engine::Game
 {
 public:
@@ -23,6 +25,8 @@ private:
     void switchTo(tenth::SceneId id);
 
     tenth::CircularSolarSystem mSolarSystem;
+    tenth::PartCatalog mCatalog = tenth::PartCatalog::standard();
+    tenth::RocketDesign mDesign; // built on the build screen, flown on launch
     tenth::BuildScene mBuildScene;
     tenth::FlightScene mFlightScene;
     tenth::Scene* mpScene = nullptr;

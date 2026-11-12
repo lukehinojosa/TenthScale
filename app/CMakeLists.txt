@@ -19,6 +19,7 @@ add_library(flight STATIC
     src/flight/Rocket.cpp
     src/flight/PartCatalog.cpp
     src/flight/RocketDesign.cpp
+    src/flight/PartDrawing.cpp
     src/flight/BuildScene.cpp
     src/flight/FlightScene.cpp
 )
