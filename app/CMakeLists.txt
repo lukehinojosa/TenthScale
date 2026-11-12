@@ -1,8 +1,10 @@
 # Shared: the interface between the modules, plus time warp, the map view, and the camera (both)
 add_library(shared STATIC
     src/shared/SolarSystem.cpp
+    src/shared/OrbitCamera.cpp
 )
 target_include_directories(shared PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(shared PUBLIC engine)
 template_set_warnings(shared)
 
 # Solar System: planet and moon data, orbits, and sphere-of-influence checks (Calvin)
@@ -15,6 +17,8 @@ template_set_warnings(solar)
 # Rocket and Flight: rocket physics, engines, aerodynamics, landing, staging, the build screen, and the HUD (Luke)
 add_library(flight STATIC
     src/flight/Rocket.cpp
+    src/flight/BuildScene.cpp
+    src/flight/FlightScene.cpp
 )
 target_link_libraries(flight PUBLIC shared cyclone)
 template_set_warnings(flight)
