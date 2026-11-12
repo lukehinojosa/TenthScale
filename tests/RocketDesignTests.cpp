@@ -150,3 +150,58 @@ TEST_CASE("Mass and center of mass add up the parts with full tanks")
 
     CHECK(RocketDesign().centerOfMass() == Vec3d{});
 }
+
+TEST_CASE("Extracting a branch gives a design rooted at that part, and attaching it back restores the rocket")
+{
+    RocketDesign design = simpleStack();
+    design.attachRadial(2, 0.0, 0.0, def("fin"));
+    const RocketDesign original = design;
+
+    RocketDesign branch = design.extract(1);
+    REQUIRE(branch.partCount() == 3); // tank, engine, and the fin on the engine
+    REQUIRE(design.partCount() == 1);
+    CHECK(branch.part(0).attachment == Attachment::Root);
+    CHECK(branch.part(0).parent == NO_PART);
+    CHECK(branch.part(0).position == Vec3d{});
+    CHECK(branch.part(1).position.y == doctest::Approx(-1.3));
+    CHECK(branch.part(2).parent == 1);
+    CHECK(branch.part(2).position.z == doctest::Approx((0.9 + 1.25) * 0.25 + 0.25)); // the engine's radius halfway up plus half the fin
+
+    const PartIndex root = design.attachDesign(0, Node::Bottom, branch);
+    REQUIRE(root == 1);
+    REQUIRE(design.partCount() == original.partCount());
+    for (PartIndex i = 0; i < design.partCount(); i++)
+    {
+        CHECK(design.part(i).pDefinition == original.part(i).pDefinition);
+        CHECK(design.part(i).parent == original.part(i).parent);
+        CHECK(design.part(i).attachment == original.part(i).attachment);
+        CHECK((design.part(i).position - original.part(i).position).length() == doctest::Approx(0.0));
+    }
+}
+
+TEST_CASE("A subassembly attaches only by a node its root still has free")
+{
+    RocketDesign design;
+    design.setRoot(def("pod"));
+
+    // The tank's top was used by the pod, and its bottom by the engine, so this branch can only hang by its top
+    RocketDesign rocket = simpleStack();
+    const RocketDesign branch = rocket.extract(1);
+    CHECK(branch.isNodeFree(0, Node::Top));
+    CHECK_FALSE(branch.isNodeFree(0, Node::Bottom));
+    CHECK(design.canAttachDesign(0, Node::Bottom, branch));
+    CHECK_FALSE(design.canAttachDesign(0, Node::Top, branch));
+
+    // Pods have a top node, so a branch fits on top of one too when its root's bottom is free
+    RocketDesign chute;
+    chute.setRoot(def("parachute"));
+    CHECK(design.canAttachDesign(0, Node::Top, chute));
+    CHECK_FALSE(design.canAttachDesign(0, Node::Top, RocketDesign()));
+
+    // Extracting the root takes everything
+    RocketDesign whole = simpleStack();
+    const RocketDesign everything = whole.extract(0);
+    CHECK(whole.empty());
+    CHECK(everything.partCount() == 3);
+    CHECK(everything.part(0).pDefinition->id == "pod");
+}

@@ -52,6 +52,19 @@ namespace tenth
         // NO_PART if it can't go there
         PartIndex attachStack(PartIndex parent, Node parentNode, const PartDefinition& definition);
 
+        // Where a part's centre would go on a stack node
+        Vec3d stackPosition(PartIndex parent, Node parentNode, const PartDefinition& definition) const;
+
+        // A whole subassembly on a stack node: its root must have the matching node free
+        bool canAttachDesign(PartIndex parent, Node parentNode, const RocketDesign& subassembly) const;
+
+        // Returns where the subassembly's root ended up, or NO_PART if it can't go there
+        PartIndex attachDesign(PartIndex parent, Node parentNode, const RocketDesign& subassembly);
+
+        // Takes the part and everything attached through it out as its own design, with that part as the root at the
+        // origin. Indices held from before are stale afterwards, as with remove().
+        RocketDesign extract(PartIndex index);
+
         bool canAttachRadial(PartIndex parent, const PartDefinition& definition) const;
 
         // height is measured from the parent's centre and kept within the parent's height. NO_PART if it can't go there.

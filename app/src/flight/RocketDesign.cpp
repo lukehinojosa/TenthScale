@@ -62,23 +62,98 @@ namespace tenth
         return hasNode(parentDefinition, parentNode) && hasNode(definition, opposite(parentNode)) && isNodeFree(parent, parentNode);
     }
 
+    Vec3d RocketDesign::stackPosition(PartIndex parent, Node parentNode, const PartDefinition& definition) const
+    {
+        const PlacedPart& parentPart = part(parent);
+        const double gap = (parentPart.pDefinition->shape.height + definition.shape.height) * 0.5;
+        return parentPart.position + Vec3d{ 0.0, parentNode == Node::Top ? gap : -gap, 0.0 };
+    }
+
     PartIndex RocketDesign::attachStack(PartIndex parent, Node parentNode, const PartDefinition& definition)
     {
         if (!canAttachStack(parent, parentNode, definition))
         {
             return NO_PART;
         }
-        const PlacedPart& parentPart = part(parent);
-        const double gap = (parentPart.pDefinition->shape.height + definition.shape.height) * 0.5;
-
         PlacedPart placed;
         placed.pDefinition = &definition;
         placed.parent = parent;
         placed.attachment = Attachment::Stack;
         placed.parentNode = parentNode;
-        placed.position = parentPart.position + Vec3d{ 0.0, parentNode == Node::Top ? gap : -gap, 0.0 };
+        placed.position = stackPosition(parent, parentNode, definition);
         mParts.push_back(placed);
         return partCount() - 1;
+    }
+
+    bool RocketDesign::canAttachDesign(PartIndex parent, Node parentNode, const RocketDesign& subassembly) const
+    {
+        return !subassembly.empty() && canAttachStack(parent, parentNode, *subassembly.part(0).pDefinition) &&
+               subassembly.isNodeFree(0, opposite(parentNode));
+    }
+
+    PartIndex RocketDesign::attachDesign(PartIndex parent, Node parentNode, const RocketDesign& subassembly)
+    {
+        if (!canAttachDesign(parent, parentNode, subassembly))
+        {
+            return NO_PART;
+        }
+
+        // Every part moves by the same amount, so radial parts and lower stages keep their places around the root
+        const PartIndex first = partCount();
+        const Vec3d shift = stackPosition(parent, parentNode, *subassembly.part(0).pDefinition) - subassembly.part(0).position;
+        for (PartIndex i = 0; i < subassembly.partCount(); i++)
+        {
+            PlacedPart placed = subassembly.part(i);
+            placed.position += shift;
+            if (i == 0)
+            {
+                placed.parent = parent;
+                placed.attachment = Attachment::Stack;
+                placed.parentNode = parentNode;
+            }
+            else
+            {
+                placed.parent += first;
+            }
+            mParts.push_back(placed);
+        }
+        return first;
+    }
+
+    RocketDesign RocketDesign::extract(PartIndex index)
+    {
+        RocketDesign subassembly;
+        if (index < 0 || index >= partCount())
+        {
+            return subassembly;
+        }
+
+        // Parents come first, so one pass in order collects the branch and can map each parent to its new index
+        std::vector<PartIndex> newIndex(mParts.size(), NO_PART);
+        const Vec3d origin = mParts[index].position;
+        for (PartIndex i = index; i < partCount(); i++)
+        {
+            const bool inBranch = i == index || (mParts[i].parent != NO_PART && newIndex[mParts[i].parent] != NO_PART);
+            if (!inBranch)
+            {
+                continue;
+            }
+            PlacedPart placed = mParts[i];
+            placed.position -= origin;
+            if (i == index)
+            {
+                placed.parent = NO_PART;
+                placed.attachment = Attachment::Root;
+            }
+            else
+            {
+                placed.parent = newIndex[placed.parent];
+            }
+            newIndex[i] = subassembly.partCount();
+            subassembly.mParts.push_back(placed);
+        }
+        remove(index);
+        return subassembly;
     }
 
     bool RocketDesign::canAttachRadial(PartIndex parent, const PartDefinition& definition) const
