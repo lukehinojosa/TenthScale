@@ -1,6 +1,6 @@
 # Tenth Scale
 
-A rocket-building and spaceflight simulator in a 1:10 scale Solar System, by Luke Hinojosa and Calvin DiBartolo for GPR-350 Game Physics.
+A rocket-building and spaceflight simulator in a 1:10 scale Solar System, by Luke Hinojosa and Calvin Williams for GPR-350 Game Physics.
 
 The player builds a rocket from parts (command pod, fuel tanks, engines, decouplers, fins, parachutes, landing legs), launches it from Earth, reaches orbit, and flies to and lands on the Moon. Every planet and moon is one tenth of its real size and distance but keeps its real surface gravity, so orbit takes about 2.4 km/s instead of 7.8 km/s and missions stay short enough to play.
 
