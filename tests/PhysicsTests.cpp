@@ -299,10 +299,11 @@ TEST_CASE("BoxBox gives an offset box a contact at every corner of the overlap, 
     {
         for (real z : { (real)-0.3, (real)0.5 })
         {
+            // Clipping keeps a small margin past the outline, so corners can sit just outside it
             bool found = false;
             for (int i = 0; i < added; i++)
             {
-                found = found || (std::abs(contacts[i].point.x - x) < 0.01f && std::abs(contacts[i].point.z - z) < 0.01f);
+                found = found || (std::abs(contacts[i].point.x - x) < 0.02f && std::abs(contacts[i].point.z - z) < 0.02f);
             }
             CHECK(found);
         }

@@ -16,6 +16,19 @@ Set-Location $PSScriptRoot
 # Picks up tools installed after this window opened, so nothing needs restarting after install.bat
 $env:Path = @([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User'), $env:Path) -join ';'
 
+# Repeated runs in one window would otherwise keep growing PATH until cmd.exe, and with it emsdk, can't read it
+$seenPaths = @{}
+$uniquePaths = foreach ($entry in $env:Path -split ';')
+{
+    $key = $entry.TrimEnd('\')
+    if ($key -and -not $seenPaths.ContainsKey($key))
+    {
+        $seenPaths[$key] = $true
+        $entry
+    }
+}
+$env:Path = $uniquePaths -join ';'
+
 # Native commands write progress to stderr, so only the exit code means failure
 function Invoke-Step([string]$Name, [scriptblock]$Command)
 {

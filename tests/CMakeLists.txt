@@ -28,4 +28,9 @@ if(TARGET net_relay)
     target_link_libraries(tests PRIVATE net_relay)
 endif()
 
+if(TARGET flight)
+    target_sources(tests PRIVATE SolarSystemTests.cpp FlightTests.cpp)
+    target_link_libraries(tests PRIVATE solar flight)
+endif()
+
 add_test(NAME tests COMMAND tests)

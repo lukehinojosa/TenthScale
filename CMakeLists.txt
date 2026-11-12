@@ -21,7 +21,8 @@ option(TEMPLATE_BUILD_TESTS "Build the unit tests" ON)
 option(TEMPLATE_NET_SOCKETS "Build TCP and UDP sockets on top of standalone Asio (desktop only)" ON)
 option(TEMPLATE_NET_RELAY "Build the WebSocket relay client and server (libdatachannel on desktop)" ON)
 option(TEMPLATE_GPU_COMPUTE "Build libs/gpu: WebGPU compute (wgpu-native on desktop, the browser on the web)" OFF)
-option(CYCLONE_DOUBLE_PRECISION "Compile Cyclone with double instead of float" OFF)
+# Always on: a 1:10 Solar System is too large for float positions. A plain variable, so old build caches follow it.
+set(CYCLONE_DOUBLE_PRECISION ON)
 
 option(TEMPLATE_YAML_CONFIG "Load runtime settings from YAML with yaml-cpp" ON)
 

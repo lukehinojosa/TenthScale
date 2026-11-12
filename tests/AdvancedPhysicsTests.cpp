@@ -19,8 +19,8 @@ namespace
     std::vector<BroadPhaseItem> randomItems(int count, unsigned seed, real minRadius, real maxRadius, real spread)
     {
         std::mt19937 random(seed);
-        std::uniform_real_distribution<float> position(-spread, spread);
-        std::uniform_real_distribution<float> size(minRadius, maxRadius);
+        std::uniform_real_distribution<real> position(-spread, spread);
+        std::uniform_real_distribution<real> size(minRadius, maxRadius);
         std::vector<BroadPhaseItem> items;
         for (int i = 0; i < count; i++)
         {
