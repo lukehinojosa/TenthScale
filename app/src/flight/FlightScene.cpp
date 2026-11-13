@@ -34,7 +34,7 @@ namespace tenth
         ImGui::Text("Speed: %.0f m/s", mRocket.velocity().length());
         ImGui::Text("Mission time: %.0f s", mTime);
         ImGui::TextDisabled("The flight view comes later");
-        if (ImGui::Button("Back to build"))
+        if (ImGui::Button("Back to assembly"))
         {
             requestScene(SceneId::Build);
         }

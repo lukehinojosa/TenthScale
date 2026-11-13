@@ -57,6 +57,14 @@ TEST_CASE("The standard catalog has unique ids and sensible parts")
     }
     CHECK(catalog().find("pod") != nullptr);
     CHECK(catalog().find("no-such-part") == nullptr);
+
+    // The pod carries the parachute, so the nose cone is free to cap it
+    CHECK(catalog().find("parachute") == nullptr);
+    CHECK(def("pod").hasParachute);
+    CHECK(def("nose-cone").popsOffAtPeak);
+    RocketDesign capped;
+    capped.setRoot(def("pod"));
+    CHECK(capped.attachStack(0, Node::Top, def("nose-cone")) != NO_PART);
 }
 
 TEST_CASE("Stacked parts sit end to end below the root")
@@ -68,6 +76,8 @@ TEST_CASE("Stacked parts sit end to end below the root")
     CHECK(design.part(2).position.y == doctest::Approx(-2.3)); // half the tank plus half the engine
     CHECK(design.part(2).parent == 1);
     CHECK(design.lowestPoint() == doctest::Approx(-3.1));
+    CHECK(design.highestPoint() == doctest::Approx(0.5));
+    CHECK(RocketDesign().highestPoint() == doctest::Approx(0.0));
 }
 
 TEST_CASE("A node takes only one part, and parts need a matching node")
@@ -83,7 +93,7 @@ TEST_CASE("A node takes only one part, and parts need a matching node")
     CHECK_FALSE(design.canAttachStack(2, Node::Bottom, def("nose-cone")));
     const PartIndex nose = design.attachStack(0, Node::Top, def("nose-cone"));
     REQUIRE(nose != NO_PART);
-    CHECK(design.part(nose).position.y == doctest::Approx(0.9));
+    CHECK(design.part(nose).position.y == doctest::Approx(0.5 + 0.8 * 0.6 / 1.25 * 0.5)); // shrunk to the pod's narrow top
 
     // Fins only go on the side
     CHECK_FALSE(design.canAttachStack(2, Node::Bottom, def("fin")));
@@ -118,12 +128,12 @@ TEST_CASE("Removing a part takes everything attached through it and keeps the tr
     RocketDesign design = simpleStack();
     design.attachRadial(2, 0.0, 0.0, def("fin"));
     design.attachRadial(2, std::numbers::pi, 0.0, def("fin"));
-    const PartIndex chute = design.attachStack(0, Node::Top, def("parachute"));
+    const PartIndex chute = design.attachStack(0, Node::Top, def("nose-cone"));
     REQUIRE(design.partCount() == 6);
 
     CHECK(design.remove(1) == 4); // the tank, the engine below it, and both fins on the engine
     REQUIRE(design.partCount() == 2);
-    CHECK(design.part(1).pDefinition->id == "parachute");
+    CHECK(design.part(1).pDefinition->id == "nose-cone");
     CHECK(design.part(1).parent == 0);
     CHECK(design.isNodeFree(0, Node::Bottom));
     CHECK(chute == 5);
@@ -196,7 +206,7 @@ TEST_CASE("A subassembly attaches only by a node its root still has free")
 
     // Pods have a top node, so a branch fits on top of one too when its root's bottom is free
     RocketDesign chute;
-    chute.setRoot(def("parachute"));
+    chute.setRoot(def("nose-cone"));
     CHECK(design.canAttachDesign(0, Node::Top, chute));
     CHECK_FALSE(design.canAttachDesign(0, Node::Top, RocketDesign()));
 
@@ -255,13 +265,13 @@ TEST_CASE("Removing or picking up one symmetry copy takes the whole set")
     RocketDesign fin;
     fin.setRoot(def("fin"));
     const std::vector<PartIndex> fins = design.attachDesignRadial(2, 0.0, 0.0, fin, 4);
-    design.attachStack(0, Node::Top, def("parachute"));
+    design.attachStack(0, Node::Top, def("nose-cone"));
     REQUIRE(design.partCount() == 8);
 
     RocketDesign copy = design;
     CHECK(copy.removeWithSymmetry(fins[2]) == 4);
     CHECK(copy.partCount() == 4);
-    CHECK(copy.part(3).pDefinition->id == "parachute");
+    CHECK(copy.part(3).pDefinition->id == "nose-cone");
 
     const RocketDesign held = design.extractWithSymmetry(fins[1]);
     REQUIRE(held.partCount() == 1);
@@ -276,4 +286,34 @@ TEST_CASE("Removing or picking up one symmetry copy takes the whole set")
     // Removing an ungrouped part takes only its branch, as remove() does
     CHECK(design.removeWithSymmetry(3) == 1);
     CHECK(design.partCount() == 3);
+}
+
+TEST_CASE("A nose cone resizes to the diameter it sits on, keeping its proportions")
+{
+    // On the pod's narrow top it shrinks to the pod's 0.6 m
+    RocketDesign design;
+    const PartIndex pod = design.setRoot(def("pod"));
+    const PartIndex onPod = design.attachStack(pod, Node::Top, def("nose-cone"));
+    const PartShape& small = design.part(onPod).shape;
+    CHECK(small.bottomDiameter == doctest::Approx(0.6));
+    CHECK(small.topDiameter == doctest::Approx(0.0));
+    CHECK(small.height == doctest::Approx(0.8 * 0.6 / 1.25));
+    CHECK(design.highestPoint() == doctest::Approx(0.5 + small.height));
+
+    // On a full-width tank it keeps its catalog size
+    RocketDesign tankTop;
+    const PartIndex tank = tankTop.setRoot(def("tank-small"));
+    const PartIndex onTank = tankTop.attachStack(tank, Node::Top, def("nose-cone"));
+    CHECK(tankTop.part(onTank).shape.bottomDiameter == doctest::Approx(1.25));
+    CHECK(tankTop.part(onTank).shape.height == doctest::Approx(0.8));
+
+    // Moving it from the tank to the pod refits it to the new spot
+    const RocketDesign held = tankTop.extract(onTank);
+    const PartIndex moved = design.remove(onPod) == 1 ? design.attachDesign(pod, Node::Top, held) : NO_PART;
+    REQUIRE(moved != NO_PART);
+    CHECK(design.part(moved).shape.bottomDiameter == doctest::Approx(0.6));
+
+    // Other parts never resize
+    const PartIndex below = design.attachStack(pod, Node::Bottom, def("tank-small"));
+    CHECK(design.part(below).shape.topDiameter == doctest::Approx(1.25));
 }

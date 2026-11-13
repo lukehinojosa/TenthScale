@@ -7,6 +7,7 @@ namespace tenth
     enum class SceneId
     {
         Build,
+        LaunchPad,
         Flight,
     };
 
@@ -23,6 +24,9 @@ namespace tenth
         virtual void onDraw3D() {}
         virtual void onDraw2D() {}
         virtual void onGui() {}
+
+        // Before the window closes, for freeing anything that lives on the GPU
+        virtual void onShutdown() {}
 
         // The game switches between frames, so a scene is never swapped out halfway through its own update
         std::optional<SceneId> takeRequestedScene()

@@ -32,6 +32,7 @@ namespace tenth
         Node parentNode = Node::Bottom; // stack parts: which of the parent's nodes it's on
         double angle = 0.0; // radial parts: radians around the parent's axis, 0 facing +Z
         Vec3d position;
+        PartShape shape; // the definition's, or resized to fit what it sits on, as nose cones are
         int symmetryGroup = 0; // copies placed together in symmetry share a number; 0 for a part on its own
     };
 
@@ -52,6 +53,9 @@ namespace tenth
 
         // NO_PART if it can't go there
         PartIndex attachStack(PartIndex parent, Node parentNode, const PartDefinition& definition);
+
+        // The part's shape as it would be on a stack node, resized there if it fits its parent's diameter
+        PartShape shapeOnNode(PartIndex parent, Node parentNode, const PartDefinition& definition) const;
 
         // Where a part's centre would go on a stack node
         Vec3d stackPosition(PartIndex parent, Node parentNode, const PartDefinition& definition) const;
@@ -105,6 +109,9 @@ namespace tenth
 
         // The height of the lowest point of any part, for setting the rocket down on the pad
         double lowestPoint() const;
+
+        // The height of the highest point of any part. 0 for an empty design.
+        double highestPoint() const;
 
     private:
         std::vector<PlacedPart> mParts;

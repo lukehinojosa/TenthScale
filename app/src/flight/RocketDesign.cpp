@@ -32,6 +32,7 @@ namespace tenth
         mParts.clear();
         PlacedPart root;
         root.pDefinition = &definition;
+        root.shape = definition.shape;
         mParts.push_back(root);
         return 0;
     }
@@ -63,10 +64,29 @@ namespace tenth
         return hasNode(parentDefinition, parentNode) && hasNode(definition, opposite(parentNode)) && isNodeFree(parent, parentNode);
     }
 
+    PartShape RocketDesign::shapeOnNode(PartIndex parent, Node parentNode, const PartDefinition& definition) const
+    {
+        const PartShape& parentShape = part(parent).shape;
+        const double nodeDiameter = parentNode == Node::Top ? parentShape.topDiameter : parentShape.bottomDiameter;
+        const double ownDiameter = std::max(definition.shape.topDiameter, definition.shape.bottomDiameter);
+        if (!definition.fitsParentDiameter || nodeDiameter <= 0.0 || ownDiameter <= 0.0)
+        {
+            return definition.shape;
+        }
+        const double scale = nodeDiameter / ownDiameter;
+        PartShape shape = definition.shape;
+        shape.height *= scale;
+        shape.topDiameter *= scale;
+        shape.bottomDiameter *= scale;
+        shape.span *= scale;
+        shape.thickness *= scale;
+        return shape;
+    }
+
     Vec3d RocketDesign::stackPosition(PartIndex parent, Node parentNode, const PartDefinition& definition) const
     {
         const PlacedPart& parentPart = part(parent);
-        const double gap = (parentPart.pDefinition->shape.height + definition.shape.height) * 0.5;
+        const double gap = (parentPart.shape.height + shapeOnNode(parent, parentNode, definition).height) * 0.5;
         return parentPart.position + Vec3d{ 0.0, parentNode == Node::Top ? gap : -gap, 0.0 };
     }
 
@@ -82,6 +102,7 @@ namespace tenth
         placed.attachment = Attachment::Stack;
         placed.parentNode = parentNode;
         placed.position = stackPosition(parent, parentNode, definition);
+        placed.shape = shapeOnNode(parent, parentNode, definition);
         mParts.push_back(placed);
         return partCount() - 1;
     }
@@ -111,6 +132,7 @@ namespace tenth
                 placed.parent = parent;
                 placed.attachment = Attachment::Stack;
                 placed.parentNode = parentNode;
+                placed.shape = shapeOnNode(parent, parentNode, *placed.pDefinition);
             }
             else
             {
@@ -164,13 +186,13 @@ namespace tenth
             return false;
         }
         const PartDefinition& parentDefinition = *part(parent).pDefinition;
-        return definition.mountsRadially && parentDefinition.acceptsRadial && parentDefinition.shape.kind == ShapeKind::Round;
+        return definition.mountsRadially && parentDefinition.acceptsRadial && part(parent).shape.kind == ShapeKind::Round;
     }
 
     Vec3d RocketDesign::radialPosition(PartIndex parent, double angle, double height, const PartDefinition& definition) const
     {
         const PlacedPart& parentPart = part(parent);
-        const PartShape& parentShape = parentPart.pDefinition->shape;
+        const PartShape& parentShape = parentPart.shape;
         const double halfHeight = parentShape.height * 0.5;
         const double clampedHeight = std::clamp(height, -halfHeight, halfHeight);
 
@@ -193,6 +215,7 @@ namespace tenth
         placed.attachment = Attachment::Radial;
         placed.angle = angle;
         placed.position = radialPosition(parent, angle, height, definition);
+        placed.shape = definition.shape;
         mParts.push_back(placed);
         return partCount() - 1;
     }
@@ -402,8 +425,22 @@ namespace tenth
         double lowest = std::numeric_limits<double>::infinity();
         for (const PlacedPart& placed : mParts)
         {
-            lowest = std::min(lowest, placed.position.y - placed.pDefinition->shape.height * 0.5);
+            lowest = std::min(lowest, placed.position.y - placed.shape.height * 0.5);
         }
         return lowest;
+    }
+
+    double RocketDesign::highestPoint() const
+    {
+        if (mParts.empty())
+        {
+            return 0.0;
+        }
+        double highest = -std::numeric_limits<double>::infinity();
+        for (const PlacedPart& placed : mParts)
+        {
+            highest = std::max(highest, placed.position.y + placed.shape.height * 0.5);
+        }
+        return highest;
     }
 }

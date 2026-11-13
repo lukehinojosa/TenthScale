@@ -51,9 +51,13 @@ namespace tenth
             focus.y += lift * liftSpeed * distance * dt;
         }
 
-        pitch = std::clamp(pitch, minPitch, maxPitch);
         distance = std::clamp(distance, minDistance, maxDistance);
         focus.y = std::clamp(focus.y, minFocusHeight, maxFocusHeight);
+
+        // The tilt that would put the camera at the floor or ceiling height becomes the limit
+        const float lowest = std::asin(std::clamp((minCameraHeight - focus.y) / distance, -1.0f, 1.0f));
+        const float highest = std::asin(std::clamp((maxCameraHeight - focus.y) / distance, -1.0f, 1.0f));
+        pitch = std::clamp(pitch, std::max(minPitch, lowest), std::min(maxPitch, highest));
         apply(camera);
     }
 
@@ -65,7 +69,7 @@ namespace tenth
         // Sliding the camera sideways, rather than turning it, moves the focus on screen without tilting the view
         const float halfHeight = std::max(1.0f, (float)GetScreenHeight() * 0.5f);
         const float viewHalfHeight = distance * std::tan(camera.fovy * DEG2RAD * 0.5f);
-        const float slide = leftInset * 0.5f / halfHeight * viewHalfHeight;
+        const float slide = (leftInset - rightInset) * 0.5f / halfHeight * viewHalfHeight;
         const Vector3 right = { std::cos(yaw), 0.0f, -std::sin(yaw) };
         const Vector3 target = { focus.x - right.x * slide, focus.y, focus.z - right.z * slide };
 

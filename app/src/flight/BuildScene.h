@@ -5,18 +5,21 @@
 
 #include <raylib.h>
 
+#include "flight/DesignStats.h"
 #include "flight/PartCatalog.h"
 #include "flight/RocketDesign.h"
 #include "shared/OrbitCamera.h"
 #include "shared/Scene.h"
+#include "shared/SolarSystem.h"
 
 namespace tenth
 {
-    // The build screen: drag parts from the panel on the left onto a build plate the camera orbits
+    // The assembly building: the rocket floats in the middle of the hall while parts are dragged onto it from the
+    // panel on the left, with its stages and stats on the right
     class BuildScene : public Scene
     {
     public:
-        BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design);
+        BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem);
 
         void onEnter() override;
         void onUpdate(double frameDt, double alpha) override;
@@ -41,6 +44,8 @@ namespace tenth
         void drawPartList();
         void drawFooter();
         void drawHeldTooltip() const;
+        void drawRocketPanel();
+        void drawMarkers(Vector3 offset) const;
 
         bool mouseOverViewport() const;
         bool canStartRocket() const;
@@ -53,8 +58,9 @@ namespace tenth
 
         bool sameSymmetry(PartIndex a, PartIndex b) const;
 
-        // Lifts the rocket so its lowest point rests on the plate
+        // Where the rocket's root sits in the hall
         Vector3 designOffset() const;
+        void limitFocus();
 
         PartIndex pickPart(Ray ray) const;
 
@@ -67,12 +73,13 @@ namespace tenth
         const PartCatalog& mCatalog;
         RocketDesign& mDesign;
         OrbitCamera mOrbit;
+        double mSurfaceGravity = 9.81; // Earth's, for the launch pad TWR
+        bool mShowMarkers = true;
 
         // Parts following the mouse: a new part from the panel, or a branch picked up off the rocket
         RocketDesign mHeld;
         bool mHeldFromPanel = false;
         std::optional<Snap> mSnap;
-        bool mOverPlate = false;
         Vector3 mHeldPoint = {}; // where the held parts float when they aren't snapped
 
         PartIndex mHovered = NO_PART;

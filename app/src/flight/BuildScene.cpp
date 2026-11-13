@@ -1,5 +1,6 @@
 #include "flight/BuildScene.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -14,19 +15,31 @@ namespace tenth
     namespace
     {
         constexpr float PANEL_WIDTH = 280.0f;
-        constexpr float PLATE_RADIUS = 3.0f;
-        constexpr float PLATE_THICKNESS = 0.3f;
+        constexpr float RIGHT_PANEL_WIDTH = 250.0f;
+        constexpr double ORBIT_DELTA_V = 3000.0; // m/s a rocket needs to reach low orbit, roughly, losses included
+        constexpr float BUILD_HEIGHT = 20.0f; // the pod floats this high above the hall floor
+        constexpr float FLOOR_CLEARANCE = 1.0f; // a long rocket is raised so its bottom stays this far off the floor
+        constexpr float HALL_HALF_WIDTH = 25.0f;
+        constexpr float HALL_HEIGHT = 48.0f;
+        constexpr float EMPTY_FOCUS_RANGE = 2.0f; // how far the camera can move up or down from where the first part goes
         constexpr float CLICK_SLOP = 5.0f; // pixels the mouse may move between press and release and still count as a click
         constexpr float SNAP_RADIUS = 60.0f; // pixels from a node that the held parts snap to it
         constexpr size_t UNDO_LIMIT = 100;
         constexpr double ANGLE_STEP = 15.0 * DEG2RAD; // side-mounted parts snap round the rocket in these steps
         constexpr int MAX_SYMMETRY = 4;
-        constexpr Color GROUND_COLOR = { 52, 58, 52, 255 };
-        constexpr Color PLATE_COLOR = { 96, 100, 108, 255 };
-        constexpr Color PLATE_EDGE_COLOR = { 230, 180, 40, 255 };
+        constexpr Color FLOOR_COLOR = { 58, 60, 66, 255 };
+        constexpr Color WALL_COLOR = { 82, 88, 98, 255 };
+        constexpr Color SIDE_WALL_COLOR = { 72, 78, 88, 255 };
+        constexpr Color CEILING_COLOR = { 46, 48, 54, 255 };
+        constexpr Color BEAM_COLOR = { 54, 58, 66, 255 };
+        constexpr Color DOOR_COLOR = { 104, 110, 120, 255 };
+        constexpr Color HAZARD_COLOR = { 230, 180, 40, 255 };
         constexpr Color SELECTED_OUTLINE = { 255, 230, 60, 255 };
         constexpr Color INVALID_COLOR = { 220, 60, 50, 255 };
         constexpr Color NODE_COLOR = { 80, 230, 120, 255 };
+        constexpr Color MASS_CENTER_COLOR = { 255, 210, 40, 255 };
+        constexpr Color PRESSURE_CENTER_COLOR = { 70, 150, 255, 255 };
+        constexpr ImVec4 WARNING_TEXT = { 1.0f, 0.55f, 0.35f, 1.0f };
 
         constexpr PartCategory CATEGORY_ORDER[] = { PartCategory::Pod,      PartCategory::Tank, PartCategory::Engine,
                                                     PartCategory::Coupling, PartCategory::Aero, PartCategory::Utility };
@@ -52,6 +65,14 @@ namespace tenth
             {
                 ImGui::Text("Mass: %.0f kg", part.dryMass);
             }
+            if (part.hasParachute)
+            {
+                ImGui::TextUnformatted("Built-in parachute");
+            }
+            if (part.popsOffAtPeak)
+            {
+                ImGui::TextUnformatted("Pops off at peak altitude");
+            }
             if (part.isEngine())
             {
                 ImGui::Text("Thrust: %.0f kN in vacuum", part.thrustVacuum / 1000.0);
@@ -61,18 +82,72 @@ namespace tenth
             ImGui::EndTooltip();
         }
 
-        // Where a stack node sits in the world, given the part's centre
-        Vector3 nodePoint(const PartDefinition& definition, Vector3 centre, Node node)
+        // The inside of the assembly building: floor, walls with beams and floor ledges, ceiling, and the big door
+        void drawHall()
         {
-            const float halfHeight = (float)definition.shape.height * 0.5f;
+            const float w = HALL_HALF_WIDTH * 2.0f;
+            const float h = HALL_HEIGHT;
+            DrawPlane({ 0.0f, 0.0f, 0.0f }, { w, w }, FLOOR_COLOR);
+            rlPushMatrix();
+            rlTranslatef(0.0f, 0.01f, 0.0f);
+            DrawGrid(25, 2.0f);
+            rlPopMatrix();
+
+            DrawCube({ 0.0f, h * 0.5f, -HALL_HALF_WIDTH - 0.5f }, w, h, 1.0f, WALL_COLOR);
+            DrawCube({ 0.0f, h * 0.5f, HALL_HALF_WIDTH + 0.5f }, w, h, 1.0f, WALL_COLOR);
+            DrawCube({ -HALL_HALF_WIDTH - 0.5f, h * 0.5f, 0.0f }, 1.0f, h, w, SIDE_WALL_COLOR);
+            DrawCube({ HALL_HALF_WIDTH + 0.5f, h * 0.5f, 0.0f }, 1.0f, h, w, SIDE_WALL_COLOR);
+            DrawCube({ 0.0f, h + 0.5f, 0.0f }, w, 1.0f, w, CEILING_COLOR);
+
+            // Beams up every wall and ledges at each work level give the room a sense of size
+            for (float along = -HALL_HALF_WIDTH; along <= HALL_HALF_WIDTH; along += 10.0f)
+            {
+                DrawCube({ along, h * 0.5f, -HALL_HALF_WIDTH + 0.4f }, 0.8f, h, 0.8f, BEAM_COLOR);
+                DrawCube({ along, h * 0.5f, HALL_HALF_WIDTH - 0.4f }, 0.8f, h, 0.8f, BEAM_COLOR);
+                DrawCube({ -HALL_HALF_WIDTH + 0.4f, h * 0.5f, along }, 0.8f, h, 0.8f, BEAM_COLOR);
+                DrawCube({ HALL_HALF_WIDTH - 0.4f, h * 0.5f, along }, 0.8f, h, 0.8f, BEAM_COLOR);
+            }
+            for (float level = 12.0f; level < h; level += 12.0f)
+            {
+                DrawCube({ 0.0f, level, -HALL_HALF_WIDTH + 1.0f }, w, 0.4f, 2.0f, BEAM_COLOR);
+                DrawCube({ 0.0f, level, HALL_HALF_WIDTH - 1.0f }, w, 0.4f, 2.0f, BEAM_COLOR);
+                DrawCube({ -HALL_HALF_WIDTH + 1.0f, level, 0.0f }, 2.0f, 0.4f, w, BEAM_COLOR);
+                DrawCube({ HALL_HALF_WIDTH - 1.0f, level, 0.0f }, 2.0f, 0.4f, w, BEAM_COLOR);
+            }
+
+            // The rollout door on the far wall, edged in hazard stripes
+            const float doorWidth = 18.0f;
+            const float doorHeight = 42.0f;
+            DrawCube({ 0.0f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.05f }, doorWidth, doorHeight, 0.1f, DOOR_COLOR);
+            DrawCube({ -doorWidth * 0.5f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.1f }, 0.5f, doorHeight, 0.1f, HAZARD_COLOR);
+            DrawCube({ doorWidth * 0.5f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.1f }, 0.5f, doorHeight, 0.1f, HAZARD_COLOR);
+            DrawCube({ 0.0f, doorHeight, -HALL_HALF_WIDTH + 0.1f }, doorWidth + 0.5f, 0.5f, 0.1f, HAZARD_COLOR);
+        }
+
+        // Where a stack node sits in the world, given the part's centre
+        Vector3 nodePoint(const PartShape& shape, Vector3 centre, Node node)
+        {
+            const float halfHeight = (float)shape.height * 0.5f;
             return { centre.x, centre.y + (node == Node::Top ? halfHeight : -halfHeight), centre.z };
         }
     }
 
-    BuildScene::BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design)
+    BuildScene::BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem)
         : mCamera(camera), mCatalog(catalog), mDesign(design)
     {
         mOrbit.leftInset = PANEL_WIDTH;
+        mOrbit.rightInset = RIGHT_PANEL_WIDTH;
+        mOrbit.focus = { 0.0f, BUILD_HEIGHT, 0.0f };
+        mOrbit.distance = 16.0f;
+        mOrbit.maxDistance = HALL_HALF_WIDTH - 3.0f;
+        mOrbit.minPitch = -1.2f;
+        mOrbit.minCameraHeight = 0.5f;
+        mOrbit.maxCameraHeight = HALL_HEIGHT - 1.0f;
+        const BodyId earth = solarSystem.findBody("Earth");
+        if (earth != NO_BODY)
+        {
+            mSurfaceGravity = solarSystem.surfaceGravity(earth);
+        }
     }
 
     void BuildScene::onEnter()
@@ -82,7 +157,8 @@ namespace tenth
 
     bool BuildScene::mouseOverViewport() const
     {
-        return GetMousePosition().x > PANEL_WIDTH;
+        const float x = GetMousePosition().x;
+        return x > PANEL_WIDTH && x < (float)GetScreenWidth() - RIGHT_PANEL_WIDTH;
     }
 
     bool BuildScene::canStartRocket() const
@@ -90,9 +166,10 @@ namespace tenth
         return mDesign.empty() && !mHeld.empty() && mHeld.part(0).pDefinition->category == PartCategory::Pod;
     }
 
+    // The pod stays put at the build height while parts go on above and below it
     Vector3 BuildScene::designOffset() const
     {
-        return { 0.0f, (float)-mDesign.lowestPoint(), 0.0f };
+        return { 0.0f, std::max(BUILD_HEIGHT, FLOOR_CLEARANCE - (float)mDesign.lowestPoint()), 0.0f };
     }
 
     PartIndex BuildScene::pickPart(Ray ray) const
@@ -104,7 +181,7 @@ namespace tenth
         {
             const PlacedPart& placed = mDesign.part(i);
             const Vector3 position = Vector3Add(toRaylib(placed.position), offset);
-            const RayCollision hit = GetRayCollisionBox(ray, partBounds(*placed.pDefinition, position, (float)placed.angle));
+            const RayCollision hit = GetRayCollisionBox(ray, partBounds(placed.shape, position, (float)placed.angle));
             if (hit.hit && (closest == NO_PART || hit.distance < closestDistance))
             {
                 closest = i;
@@ -140,7 +217,7 @@ namespace tenth
                 {
                     continue;
                 }
-                const Vector2 onScreen = GetWorldToScreen(nodePoint(*placed.pDefinition, centre, node), mCamera);
+                const Vector2 onScreen = GetWorldToScreen(nodePoint(placed.shape, centre, node), mCamera);
                 const float distance = Vector2Distance(onScreen, mouse);
                 if (distance < bestDistance)
                 {
@@ -169,7 +246,7 @@ namespace tenth
             }
             const PlacedPart& placed = mDesign.part(i);
             const Vector3 centre = Vector3Add(toRaylib(placed.position), offset);
-            const RayCollision hit = GetRayCollisionBox(ray, partBounds(*placed.pDefinition, centre, (float)placed.angle));
+            const RayCollision hit = GetRayCollisionBox(ray, partBounds(placed.shape, centre, (float)placed.angle));
             if (!hit.hit || (best.has_value() && hit.distance >= bestDistance))
             {
                 continue;
@@ -206,8 +283,25 @@ namespace tenth
         return a == b || (group != 0 && group == mDesign.part(b).symmetryGroup);
     }
 
+    // The camera's focus stays between the rocket's lowest and highest points, so some of it is always in view
+    void BuildScene::limitFocus()
+    {
+        const float rootHeight = designOffset().y;
+        if (mDesign.empty())
+        {
+            mOrbit.minFocusHeight = rootHeight - EMPTY_FOCUS_RANGE;
+            mOrbit.maxFocusHeight = rootHeight + EMPTY_FOCUS_RANGE;
+        }
+        else
+        {
+            mOrbit.minFocusHeight = rootHeight + (float)mDesign.lowestPoint();
+            mOrbit.maxFocusHeight = rootHeight + (float)mDesign.highestPoint();
+        }
+    }
+
     void BuildScene::onUpdate(double frameDt, double /*alpha*/)
     {
+        limitFocus();
         mOrbit.update(mCamera, (float)frameDt);
         const Ray ray = GetScreenToWorldRay(GetMousePosition(), mCamera);
         if (!mHeld.empty())
@@ -228,28 +322,15 @@ namespace tenth
             mSymmetry = mSymmetry % MAX_SYMMETRY + 1;
         }
         mSnap = findSnap(ray);
-        mOverPlate = false;
-        if (mDesign.empty())
+
+        // Unsnapped parts float on an upright plane through the rocket, facing the camera
+        const Vector3 toCamera = Vector3Subtract(mCamera.position, mCamera.target);
+        const Vector3 normal = Vector3Normalize({ toCamera.x, 0.0f, toCamera.z });
+        const float facing = Vector3DotProduct(ray.direction, normal);
+        if (std::abs(facing) > 1e-4f)
         {
-            // With nothing built yet, the held parts slide along the plate
-            if (ray.direction.y < 0.0f)
-            {
-                const float t = -ray.position.y / ray.direction.y;
-                mHeldPoint = Vector3Add(ray.position, Vector3Scale(ray.direction, t));
-                mOverPlate = mouseOverViewport() && std::hypot(mHeldPoint.x, mHeldPoint.z) <= PLATE_RADIUS;
-            }
-        }
-        else
-        {
-            // Otherwise they float on an upright plane through the rocket, facing the camera
-            const Vector3 toCamera = Vector3Subtract(mCamera.position, mCamera.target);
-            const Vector3 normal = Vector3Normalize({ toCamera.x, 0.0f, toCamera.z });
-            const float facing = Vector3DotProduct(ray.direction, normal);
-            if (std::abs(facing) > 1e-4f)
-            {
-                const float t = Vector3DotProduct(Vector3Subtract(mOrbit.focus, ray.position), normal) / facing;
-                mHeldPoint = Vector3Add(ray.position, Vector3Scale(ray.direction, std::max(t, 0.0f)));
-            }
+            const float t = Vector3DotProduct(Vector3Subtract(mOrbit.focus, ray.position), normal) / facing;
+            mHeldPoint = Vector3Add(ray.position, Vector3Scale(ray.direction, std::max(t, 0.0f)));
         }
 
         // A drag from the panel leaves ImGui holding the mouse, so the release is read here wherever it happens
@@ -272,7 +353,7 @@ namespace tenth
             const std::vector<PartIndex> roots = applySnap(mDesign, *mSnap);
             mSelected = roots.empty() ? NO_PART : roots.front();
         }
-        else if (canStartRocket() && mOverPlate)
+        else if (canStartRocket() && mouseOverViewport())
         {
             if (mHeldFromPanel)
             {
@@ -401,18 +482,9 @@ namespace tenth
         mSelected = NO_PART;
     }
 
-    // The plate's top is at height zero, so parts placed on it sit at y = 0
     void BuildScene::onDraw3D()
     {
-        DrawPlane({ 0.0f, -PLATE_THICKNESS, 0.0f }, { 1800.0f, 1800.0f }, GROUND_COLOR);
-        DrawCylinder({ 0.0f, -PLATE_THICKNESS, 0.0f }, PLATE_RADIUS, PLATE_RADIUS, PLATE_THICKNESS, 64, PLATE_COLOR);
-        DrawCylinderWires({ 0.0f, -PLATE_THICKNESS, 0.0f }, PLATE_RADIUS, PLATE_RADIUS, PLATE_THICKNESS, 64, PLATE_EDGE_COLOR);
-
-        // Lifted a hair so the grid doesn't flicker against the plate's top
-        rlPushMatrix();
-        rlTranslatef(0.0f, 0.002f, 0.0f);
-        DrawGrid(8, 0.5f);
-        rlPopMatrix();
+        drawHall();
 
         const Vector3 offset = designOffset();
         for (PartIndex i = 0; i < mDesign.partCount(); i++)
@@ -424,7 +496,12 @@ namespace tenth
                 color = ColorBrightness(color, 0.25f);
             }
             const Color outline = sameSymmetry(i, mSelected) ? SELECTED_OUTLINE : ColorBrightness(color, -0.5f);
-            drawPart(*placed.pDefinition, Vector3Add(toRaylib(placed.position), offset), (float)placed.angle, color, outline);
+            drawPart(placed.shape, Vector3Add(toRaylib(placed.position), offset), (float)placed.angle, color, outline);
+        }
+
+        if (mShowMarkers && !mDesign.empty())
+        {
+            drawMarkers(offset);
         }
 
         if (mHeld.empty() || !mouseOverViewport())
@@ -443,7 +520,7 @@ namespace tenth
                 if (mDesign.canAttachDesign(i, node, mHeld))
                 {
                     const bool snapped = mSnap.has_value() && mSnap->parent == i && mSnap->node == node;
-                    DrawSphere(nodePoint(*placed.pDefinition, centre, node), snapped ? 0.16f : 0.09f, NODE_COLOR);
+                    DrawSphere(nodePoint(placed.shape, centre, node), snapped ? 0.16f : 0.09f, NODE_COLOR);
                 }
             }
         }
@@ -452,7 +529,7 @@ namespace tenth
         auto drawGhost = [](const PlacedPart& placed, Vector3 position, bool valid)
         {
             const Color color = valid ? categoryColor(placed.pDefinition->category) : INVALID_COLOR;
-            drawPart(*placed.pDefinition, position, (float)placed.angle, ColorAlpha(color, 0.45f),
+            drawPart(placed.shape, position, (float)placed.angle, ColorAlpha(color, 0.45f),
                      ColorAlpha(ColorBrightness(color, -0.4f), 0.8f));
         };
         if (mSnap.has_value())
@@ -467,17 +544,9 @@ namespace tenth
             return;
         }
 
-        // Otherwise it sits centred on an empty plate, or follows the mouse in red where it can't go
-        const bool valid = canStartRocket() && mOverPlate;
-        Vector3 rootPosition = mHeldPoint;
-        if (valid)
-        {
-            rootPosition = { 0.0f, (float)-mHeld.lowestPoint(), 0.0f };
-        }
-        else if (mDesign.empty())
-        {
-            rootPosition.y = (float)mHeld.part(0).pDefinition->shape.height * 0.5f;
-        }
+        // Otherwise a pod for an empty hall shows where it will float, and anything else follows the mouse in red
+        const bool valid = canStartRocket();
+        const Vector3 rootPosition = valid ? offset : mHeldPoint;
         for (PartIndex i = 0; i < mHeld.partCount(); i++)
         {
             drawGhost(mHeld.part(i), Vector3Add(toRaylib(mHeld.part(i).position - mHeld.part(0).position), rootPosition), valid);
@@ -501,6 +570,7 @@ namespace tenth
         ImGui::EndChild();
         drawFooter();
         ImGui::End();
+        drawRocketPanel();
 
         if (!mHeld.empty())
         {
@@ -522,13 +592,13 @@ namespace tenth
                 ImGui::SetTooltip("Release to delete");
             }
         }
-        else if (mSnap.has_value() || (canStartRocket() && mOverPlate))
+        else if (mSnap.has_value() || canStartRocket())
         {
             return;
         }
         else if (mDesign.empty())
         {
-            ImGui::SetTooltip(canStartRocket() ? "Drop it on the build plate" : "A rocket starts from a command pod");
+            ImGui::SetTooltip("A rocket starts from a command pod");
         }
         else
         {
@@ -589,7 +659,7 @@ namespace tenth
         }
         else
         {
-            ImGui::TextDisabled(mDesign.empty() ? "Drag a pod onto the plate to start" : "Click a part to select it");
+            ImGui::TextDisabled(mDesign.empty() ? "Drag a pod into the hall to start" : "Click a part to select it");
         }
         ImGui::Text("Parts: %d   Mass: %.2f t", mDesign.partCount(), mDesign.totalMass() / 1000.0);
         ImGui::TextDisabled("Right-drag orbit, W/S lift, wheel zoom");
@@ -636,9 +706,134 @@ namespace tenth
             mSelected = NO_PART;
         }
         ImGui::EndDisabled();
-        if (ImGui::Button("Launch", { -1.0f, 0.0f }))
+        ImGui::BeginDisabled(mDesign.empty() || mDesign.part(0).pDefinition->category != PartCategory::Pod);
+        if (ImGui::Button("Roll out to the launch pad", { -1.0f, 0.0f }))
         {
-            requestScene(SceneId::Flight);
+            requestScene(SceneId::LaunchPad);
         }
+        ImGui::EndDisabled();
+    }
+
+    // Drawn over the rocket so they show through the parts
+    void BuildScene::drawMarkers(Vector3 offset) const
+    {
+        const Vector3 massCenter = Vector3Add(toRaylib(mDesign.centerOfMass()), offset);
+        const Vector3 pressureCenter = Vector3Add(toRaylib(centerOfPressure(mDesign)), offset);
+        rlDrawRenderBatchActive();
+        rlDisableDepthTest();
+        DrawSphere(massCenter, 0.2f, MASS_CENTER_COLOR);
+        DrawSphereWires(massCenter, 0.2f, 6, 8, ColorBrightness(MASS_CENTER_COLOR, -0.5f));
+        DrawSphere(pressureCenter, 0.15f, PRESSURE_CENTER_COLOR);
+        DrawSphereWires(pressureCenter, 0.15f, 6, 8, ColorBrightness(PRESSURE_CENTER_COLOR, -0.5f));
+        rlDrawRenderBatchActive();
+        rlEnableDepthTest();
+    }
+
+    void BuildScene::drawRocketPanel()
+    {
+        const ImGuiViewport* pViewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos({ pViewport->WorkPos.x + pViewport->WorkSize.x - RIGHT_PANEL_WIDTH, pViewport->WorkPos.y });
+        ImGui::SetNextWindowSize({ RIGHT_PANEL_WIDTH, pViewport->WorkSize.y });
+        const ImGuiWindowFlags flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGui::Begin("Rocket", nullptr, flags);
+        if (mDesign.empty())
+        {
+            ImGui::TextDisabled("Nothing built yet");
+            ImGui::End();
+            return;
+        }
+
+        // Worked out here, not once per frame, since buttons earlier in this frame's GUI may have changed the rocket
+        const DesignStats stats = computeStats(mDesign, mSurfaceGravity);
+        ImGui::Text("Mass: %.2f t full, %.2f t empty", mDesign.totalMass() / 1000.0, mDesign.dryMass() / 1000.0);
+        ImGui::Text("Height: %.1f m", mDesign.highestPoint() - mDesign.lowestPoint());
+
+        ImGui::SeparatorText("Stages");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("In firing order. Delta-v in vacuum, TWR on the launch pad.");
+        ImGui::PopStyleColor();
+        if (stats.stages.empty())
+        {
+            ImGui::TextColored(WARNING_TEXT, "No engines yet");
+        }
+        for (size_t k = 0; k < stats.stages.size(); k++)
+        {
+            const StageStats& stage = stats.stages[k];
+            ImGui::Spacing();
+            ImGui::Text("Stage %d", (int)k + 1);
+            ImGui::Indent();
+
+            // Engines of the same kind are listed once with a count
+            std::vector<const PartDefinition*> kinds;
+            for (PartIndex engine : stage.engines)
+            {
+                const PartDefinition* pDefinition = mDesign.part(engine).pDefinition;
+                if (std::find(kinds.begin(), kinds.end(), pDefinition) == kinds.end())
+                {
+                    kinds.push_back(pDefinition);
+                }
+            }
+            for (const PartDefinition* pKind : kinds)
+            {
+                int count = 0;
+                for (PartIndex engine : stage.engines)
+                {
+                    if (mDesign.part(engine).pDefinition == pKind)
+                    {
+                        count++;
+                    }
+                }
+                ImGui::TextDisabled("%dx %s", count, pKind->name.c_str());
+            }
+
+            ImGui::Text("Delta-v: %.0f m/s", stage.deltaVVacuum);
+            if (k == 0 && stage.twrSeaLevel < 1.0)
+            {
+                ImGui::TextColored(WARNING_TEXT, "TWR: %.2f, too heavy to lift off", stage.twrSeaLevel);
+            }
+            else
+            {
+                ImGui::Text("TWR: %.2f", stage.twrSeaLevel);
+            }
+            if (stage.fuelMass <= 0.0)
+            {
+                ImGui::TextColored(WARNING_TEXT, "No fuel above the next decoupler");
+            }
+            if (stage.decoupler != NO_PART)
+            {
+                ImGui::TextDisabled("Then drops at its decoupler");
+            }
+            ImGui::Unindent();
+        }
+
+        ImGui::Separator();
+        ImGui::Text("Total delta-v: %.0f m/s", stats.totalDeltaVVacuum);
+        if (stats.totalDeltaVVacuum < ORBIT_DELTA_V)
+        {
+            ImGui::TextDisabled("Orbit takes roughly %.0f m/s", ORBIT_DELTA_V);
+        }
+
+        ImGui::SeparatorText("Balance");
+        ImGui::Checkbox("Show markers", &mShowMarkers);
+        const float swatchSize = ImGui::GetTextLineHeight();
+        const ImGuiColorEditFlags swatchFlags = ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop;
+        ImGui::ColorButton("##mass", toImGui(MASS_CENTER_COLOR), swatchFlags, { swatchSize, swatchSize });
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Center of mass");
+        ImGui::ColorButton("##pressure", toImGui(PRESSURE_CENTER_COLOR), swatchFlags, { swatchSize, swatchSize });
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Center of pressure");
+        if (stats.stable)
+        {
+            ImGui::TextWrapped("Stable: the pressure center is below the mass center, so the air keeps the nose forward.");
+        }
+        else
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, WARNING_TEXT);
+            ImGui::TextWrapped("Unstable: the pressure center is above the mass center. Add fins low on the rocket.");
+            ImGui::PopStyleColor();
+        }
+        ImGui::End();
     }
 }

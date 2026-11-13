@@ -18,13 +18,16 @@ namespace tenth
         float maxPitch = 1.5f;
         float minFocusHeight = 0.0f;
         float maxFocusHeight = 60.0f;
+        float minCameraHeight = -1.0e9f; // the camera tilts no lower or higher than this, to stay inside a room
+        float maxCameraHeight = 1.0e9f;
 
         float orbitSensitivity = 0.006f; // radians per pixel
         float zoomStep = 0.12f; // share of the distance per wheel notch
         float liftSpeed = 0.6f; // share of the distance per second with W/S
 
-        // Pixels a panel covers on the left, so the focus shows in the middle of what's left of the screen
+        // Pixels panels cover on each side, so the focus shows in the middle of what's left of the screen
         float leftInset = 0.0f;
+        float rightInset = 0.0f;
 
         void update(Camera3D& camera, float dt);
 

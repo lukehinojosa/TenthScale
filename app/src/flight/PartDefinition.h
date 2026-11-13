@@ -49,6 +49,9 @@ namespace tenth
         double ispSeaLevel = 0.0; // engines only: specific impulse at sea level, lower because of air pressure
 
         bool separates = false; // decouplers split the rocket into stages here
+        bool hasParachute = false; // pods carry one built in, for a soft landing back on Earth
+        bool popsOffAtPeak = false; // nose cones come away at the top of the climb, uncovering the pod's parachute
+        bool fitsParentDiameter = false; // nose cones resize, keeping their proportions, to match what they sit on
 
         // Where it can connect: stack nodes on its top and bottom, or flat against another part's side
         bool hasTopNode = true;

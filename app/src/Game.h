@@ -4,6 +4,7 @@
 
 #include "flight/BuildScene.h"
 #include "flight/FlightScene.h"
+#include "flight/LaunchPadScene.h"
 #include "flight/PartCatalog.h"
 #include "flight/RocketDesign.h"
 #include "solar/CircularSolarSystem.h"
@@ -21,6 +22,7 @@ private:
     void onDraw3D() override;
     void onDraw2D() override;
     void onGui() override;
+    void onShutdown() override;
 
     void switchTo(tenth::SceneId id);
 
@@ -28,6 +30,7 @@ private:
     tenth::PartCatalog mCatalog = tenth::PartCatalog::standard();
     tenth::RocketDesign mDesign; // built on the build screen, flown on launch
     tenth::BuildScene mBuildScene;
+    tenth::LaunchPadScene mLaunchPadScene;
     tenth::FlightScene mFlightScene;
     tenth::Scene* mpScene = nullptr;
 };

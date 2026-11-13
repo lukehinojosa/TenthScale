@@ -32,9 +32,8 @@ namespace tenth
         return GRAY;
     }
 
-    void drawPart(const PartDefinition& definition, Vector3 position, float angle, Color color, Color outline)
+    void drawPart(const PartShape& shape, Vector3 position, float angle, Color color, Color outline)
     {
-        const PartShape& shape = definition.shape;
         const float halfHeight = (float)shape.height * 0.5f;
         if (shape.kind == ShapeKind::Round)
         {
@@ -56,9 +55,20 @@ namespace tenth
         rlPopMatrix();
     }
 
-    BoundingBox partBounds(const PartDefinition& definition, Vector3 position, float angle)
+    void drawDesign(const RocketDesign& design, Vector3 offset)
     {
-        const PartShape& shape = definition.shape;
+        for (PartIndex i = 0; i < design.partCount(); i++)
+        {
+            const PlacedPart& placed = design.part(i);
+            const Color color = categoryColor(placed.pDefinition->category);
+            const Vector3 position = { offset.x + (float)placed.position.x, offset.y + (float)placed.position.y,
+                                       offset.z + (float)placed.position.z };
+            drawPart(placed.shape, position, (float)placed.angle, color, ColorBrightness(color, -0.5f));
+        }
+    }
+
+    BoundingBox partBounds(const PartShape& shape, Vector3 position, float angle)
+    {
         const float halfHeight = (float)shape.height * 0.5f;
         float halfX = 0.0f;
         float halfZ = 0.0f;

@@ -101,7 +101,9 @@ namespace tenth
         PartCatalog catalog;
 
         PartDefinition pod = roundPart("pod", "Command Pod", PartCategory::Pod, 1.0, 0.6, 1.25, 800.0);
-        pod.description = "Seats the crew and steers with its reaction wheels. Every rocket is built down from one.";
+        pod.hasParachute = true;
+        pod.description = "Seats the crew, steers with its reaction wheels, and carries a parachute for landing on Earth. "
+                          "Every rocket is built around one.";
         catalog.add(pod);
 
         catalog.add(tank("tank-small", "Small Tank", 1.0, 125.0, 1000.0));
@@ -125,18 +127,14 @@ namespace tenth
         PartDefinition nose = roundPart("nose-cone", "Nose Cone", PartCategory::Aero, 0.8, 0.0, 1.25, 50.0);
         nose.hasTopNode = false;
         nose.acceptsRadial = false;
-        nose.description = "Cuts drag on top of a stack.";
+        nose.popsOffAtPeak = true;
+        nose.fitsParentDiameter = true;
+        nose.description = "Cuts drag on the way up, then pops off at peak altitude to uncover the pod's parachute.";
         catalog.add(nose);
 
         PartDefinition fin = boxPart("fin", "Fin", PartCategory::Aero, 0.8, 0.5, 0.05, 50.0);
         fin.description = "Keeps the rocket pointing forward in the air. Mount low and in symmetry.";
         catalog.add(fin);
-
-        PartDefinition chute = roundPart("parachute", "Parachute", PartCategory::Utility, 0.3, 0.3, 0.5, 100.0);
-        chute.hasTopNode = false;
-        chute.acceptsRadial = false;
-        chute.description = "Slows the pod for a soft landing on Earth. Goes on top of the pod.";
-        catalog.add(chute);
 
         PartDefinition leg = boxPart("landing-leg", "Landing Leg", PartCategory::Utility, 1.2, 0.4, 0.15, 60.0);
         leg.description = "Takes the impact of a landing. Mount at least three in symmetry.";

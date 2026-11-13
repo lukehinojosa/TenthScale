@@ -19,8 +19,10 @@ add_library(flight STATIC
     src/flight/Rocket.cpp
     src/flight/PartCatalog.cpp
     src/flight/RocketDesign.cpp
+    src/flight/DesignStats.cpp
     src/flight/PartDrawing.cpp
     src/flight/BuildScene.cpp
+    src/flight/LaunchPadScene.cpp
     src/flight/FlightScene.cpp
 )
 target_link_libraries(flight PUBLIC shared cyclone)

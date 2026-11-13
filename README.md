@@ -4,7 +4,7 @@ A rocket-building and spaceflight simulator in a 1:10 scale Solar System, by Luk
 
 The player builds a rocket from parts (command pod, fuel tanks, engines, decouplers, fins, parachutes, landing legs), launches it from Earth, reaches orbit, and flies to and lands on the Moon. Every planet and moon is one tenth of its real size and distance but keeps its real surface gravity, so orbit takes about 2.4 km/s instead of 7.8 km/s and missions stay short enough to play.
 
-**Status:** the project is set up from [CppTemplate](https://github.com/lukehinojosa/CppTemplate) and builds on Windows and for the web. The three modules and the shared interface are in place, with a placeholder Solar System and a point-mass rocket under gravity. The game opens on the build screen, where parts are dragged from the list on the left onto the build plate and stacked onto a command pod, with fins and legs placed around its sides in symmetry and every change undoable; Launch goes to a placeholder flight screen. **In the browser:** [the latest build](https://lukarbonite.dev/TenthScale/), published from `main` by CI once both builds pass.
+**Status:** the project is set up from [CppTemplate](https://github.com/lukehinojosa/CppTemplate) and builds on Windows and for the web. The three modules and the shared interface are in place, with a placeholder Solar System and a point-mass rocket under gravity. The game opens in the assembly building, where the rocket floats mid-hall and parts are dragged from the list on the left onto a command pod, with fins and legs placed around its sides in symmetry and every change undoable. A panel on the right shows each stage's delta-v and TWR and marks the centers of mass and pressure. The finished rocket rolls out to the launch pad, and Launch goes to a placeholder flight screen. **In the browser:** [the latest build](https://lukarbonite.dev/TenthScale/), published from `main` by CI once both builds pass.
 
 **Final demo (due December 10):** one full mission. Build, launch, reach orbit, burn toward the Moon, and land.
 
@@ -104,7 +104,7 @@ flowchart TB
 | `app/src/` | The game: `Game.cpp` runs the scene and ties the modules together |
 | `app/src/shared/` | Shared module: `SolarSystem.h` (the interface between the modules), `Vec3d.h` (double-precision vectors), `Scene.h` (one screen of the game), and `OrbitCamera` |
 | `app/src/solar/` | Solar System module: `CircularSolarSystem` is the placeholder with the Sun, Earth, and the Moon on circular orbits |
-| `app/src/flight/` | Rocket and Flight module: `Rocket` flies relative to whichever body's gravity it's in; `PartCatalog` and `RocketDesign` hold the parts and a rocket built from them; `BuildScene` and `FlightScene` are the build and flight screens |
+| `app/src/flight/` | Rocket and Flight module: `Rocket` flies relative to whichever body's gravity it's in; `PartCatalog` and `RocketDesign` hold the parts and a rocket built from them, and `DesignStats` works out its stages; `BuildScene`, `LaunchPadScene`, and `FlightScene` are the assembly building, launch pad, and flight screens |
 | `app/assets/` | Images and sounds, loaded as `"assets/name.png"` |
 | `app/config/` | Runtime settings in `game.yaml`; changes apply without a rebuild |
 | `examples/sandbox/` | A demo of every library from the template: lighting and shadows, terrain, the physics playground, audio. Reference for how to use each one. |
