@@ -7,7 +7,7 @@ template_set_warnings(shared)
 
 # Solar System: planet and moon data, orbits, and sphere-of-influence checks (Calvin)
 add_library(solar STATIC
-    src/solar/CircularSolarSystem.cpp
+    src/solar/main.cpp
 )
 target_link_libraries(solar PUBLIC shared)
 template_set_warnings(solar)
@@ -22,7 +22,15 @@ template_set_warnings(flight)
 add_executable(app
     src/main.cpp
     src/Game.cpp
+    
 )
+
+add_executable(system
+    src/solar/main.cpp
+    
+)
+
+
 target_link_libraries(app PRIVATE engine shared solar flight)
 template_set_warnings(app)
 template_add_data_dir(app ${CMAKE_CURRENT_SOURCE_DIR}/assets assets)
