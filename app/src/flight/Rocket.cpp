@@ -1,5 +1,7 @@
 #include "flight/Rocket.h"
 
+#include <algorithm>
+
 namespace tenth
 {
     void Rocket::place(BodyId reference, const Vec3d& position, const Vec3d& velocity)
@@ -46,5 +48,16 @@ namespace tenth
             mVelocity += gravity * dt; // velocity first, then position (semi-implicit Euler)
         }
         mPosition += mVelocity * dt;
+
+        // The ground stops it falling in: it settles at its clearance and loses any speed into the surface
+        const double restingDistance = system.body(mReference).radius + mVehicle.groundClearance;
+        const double distance = mPosition.length();
+        mOnGround = distance > 0.0 && distance <= restingDistance;
+        if (mOnGround)
+        {
+            const Vec3d up = mPosition / distance;
+            mPosition = up * restingDistance;
+            mVelocity -= up * std::min(0.0, mVelocity.dot(up));
+        }
     }
 }

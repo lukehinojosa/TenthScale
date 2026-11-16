@@ -18,6 +18,7 @@ template_set_warnings(solar)
 # Rocket and Flight: rocket physics, engines, aerodynamics, landing, staging, the build screen, and the HUD (Luke)
 add_library(flight STATIC
     src/flight/Rocket.cpp
+    src/flight/Vehicle.cpp
     src/flight/PartCatalog.cpp
     src/flight/RocketDesign.cpp
     src/flight/DesignStats.cpp

@@ -100,7 +100,7 @@ flowchart TB
 | `app/src/` | The game: `Game.cpp` runs the scene and ties the modules together |
 | `app/src/shared/` | Shared module: `SolarSystem.h` (the interface between the modules), `Vec3d.h` (double-precision vectors), `Scene.h` (one screen of the game), and `OrbitCamera` |
 | `app/src/solar/` | Solar System module: `CircularSolarSystem` is the placeholder with the Sun, Earth, and the Moon on circular orbits; `PlanetsScene` is the rotating planets sandbox. Its README covers what the Solar System has to answer |
-| `app/src/flight/` | Rocket and Flight module: `Rocket` flies relative to whichever body's gravity it's in; `PartCatalog` and `RocketDesign` hold the parts and a rocket built from them, `DesignStats` works out its stages, and `DesignFile` saves and loads designs; `BuildScene`, `LaunchPadScene`, and `FlightScene` are the assembly building, launch pad, and flight screens |
+| `app/src/flight/` | Rocket and Flight module: `Rocket` flies relative to whichever body's gravity it's in, carrying the `Vehicle` (mass, center of mass, inertia, and staging) built from the design; `PartCatalog` and `RocketDesign` hold the parts and a rocket built from them, `DesignStats` works out its stages, and `DesignFile` saves and loads designs; `BuildScene`, `LaunchPadScene`, and `FlightScene` are the assembly building, launch pad, and flight screens |
 | `app/assets/` | Images and sounds, loaded as `"assets/name.png"` |
 | `app/config/` | Runtime settings in `game.yaml`; changes apply without a rebuild |
 | `examples/sandbox/` | A demo of every library from the template: lighting and shadows, terrain, the physics playground, audio. Reference for how to use each one. |

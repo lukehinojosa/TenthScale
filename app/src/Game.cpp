@@ -7,7 +7,7 @@
 
 Game::Game(engine::GameConfig config)
     : engine::Game(std::move(config)), mBuildScene(getCamera(), mCatalog, mDesign, mSolarSystem),
-      mLaunchPadScene(getCamera(), mDesign, mSolarSystem), mFlightScene(mSolarSystem),
+      mLaunchPadScene(getCamera(), mDesign, mSolarSystem), mFlightScene(mDesign, mSolarSystem),
       mPlanetsScene(getCamera())
 {
 }
