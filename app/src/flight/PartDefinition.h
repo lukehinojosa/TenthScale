@@ -61,6 +61,9 @@ namespace tenth
 
         double wetMass() const { return dryMass + fuelMass; }
         bool isEngine() const { return thrustVacuum > 0.0; }
+
+        // Parts the pilot fires with the staging key: engines, decouplers, and parachutes
+        bool isStageable() const { return isEngine() || separates || hasParachute; }
     };
 
     const char* categoryName(PartCategory category);

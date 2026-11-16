@@ -27,9 +27,27 @@ namespace tenth
         }
     }
 
-    PartIndex RocketDesign::setRoot(const PartDefinition& definition)
+    double PlacedPart::dryMass() const
+    {
+        const double baseHeight = pDefinition->shape.height;
+        if (!pDefinition->fitsParentDiameter || baseHeight <= 0.0)
+        {
+            return pDefinition->dryMass;
+        }
+        const double scale = shape.height / baseHeight;
+        return pDefinition->dryMass * scale * scale;
+    }
+
+    void RocketDesign::clear()
     {
         mParts.clear();
+        mStageCount = 0;
+        mCustomStaging = false;
+    }
+
+    PartIndex RocketDesign::setRoot(const PartDefinition& definition)
+    {
+        clear();
         PlacedPart root;
         root.pDefinition = &definition;
         root.shape = definition.shape;
@@ -386,7 +404,7 @@ namespace tenth
         double mass = 0.0;
         for (const PlacedPart& placed : mParts)
         {
-            mass += placed.pDefinition->wetMass();
+            mass += placed.wetMass();
         }
         return mass;
     }
@@ -396,7 +414,7 @@ namespace tenth
         double mass = 0.0;
         for (const PlacedPart& placed : mParts)
         {
-            mass += placed.pDefinition->dryMass;
+            mass += placed.dryMass();
         }
         return mass;
     }
@@ -411,7 +429,7 @@ namespace tenth
         Vec3d weighted;
         for (const PlacedPart& placed : mParts)
         {
-            weighted += placed.position * placed.pDefinition->wetMass();
+            weighted += placed.position * placed.wetMass();
         }
         return weighted / mass;
     }
@@ -442,5 +460,179 @@ namespace tenth
             highest = std::max(highest, placed.position.y + placed.shape.height * 0.5);
         }
         return highest;
+    }
+
+    bool RocketDesign::isShrouded(PartIndex index) const
+    {
+        return part(index).pDefinition->isEngine() && !isNodeFree(index, Node::Bottom);
+    }
+
+    std::vector<PartIndex> RocketDesign::partsInStage(int stage) const
+    {
+        std::vector<PartIndex> result;
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            if (mParts[i].pDefinition->isStageable() && mParts[i].stage == stage)
+            {
+                result.push_back(i);
+            }
+        }
+        return result;
+    }
+
+    void RocketDesign::moveToStage(const std::vector<PartIndex>& parts, int stage)
+    {
+        if (stage < 0 || stage >= mStageCount)
+        {
+            return;
+        }
+        for (PartIndex index : parts)
+        {
+            if (index >= 0 && index < partCount() && mParts[index].pDefinition->isStageable())
+            {
+                mParts[index].stage = stage;
+            }
+        }
+        mCustomStaging = true;
+    }
+
+    void RocketDesign::insertStage(int stage)
+    {
+        stage = std::clamp(stage, 0, mStageCount);
+        for (PlacedPart& placed : mParts)
+        {
+            if (placed.stage >= stage)
+            {
+                placed.stage++;
+            }
+        }
+        mStageCount++;
+        mCustomStaging = true;
+    }
+
+    bool RocketDesign::removeStage(int stage)
+    {
+        if (stage < 0 || stage >= mStageCount || !partsInStage(stage).empty())
+        {
+            return false;
+        }
+        for (PlacedPart& placed : mParts)
+        {
+            if (placed.stage > stage)
+            {
+                placed.stage--;
+            }
+        }
+        mStageCount--;
+        mCustomStaging = true;
+        return true;
+    }
+
+    std::vector<int> RocketDesign::autoStages(int& stageCount) const
+    {
+        // Parents come before children, so each part's count of decouplers builds on its parent's
+        std::vector<int> depths(mParts.size(), 0);
+        int deepest = 0;
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            const PlacedPart& placed = mParts[i];
+            const int parentDepth = placed.parent == NO_PART ? 0 : depths[placed.parent];
+            depths[i] = parentDepth + (placed.pDefinition->separates ? 1 : 0);
+            deepest = std::max(deepest, depths[i]);
+        }
+
+        // The deepest section burns first; its decoupler fires together with the engines of the section above
+        std::vector<int> stages(mParts.size(), NO_STAGE);
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            const PartDefinition& definition = *mParts[i].pDefinition;
+            if (definition.separates)
+            {
+                stages[i] = deepest - depths[i] + 1;
+            }
+            else if (definition.isEngine())
+            {
+                stages[i] = deepest - depths[i];
+            }
+            else if (definition.hasParachute)
+            {
+                stages[i] = deepest + 2;
+            }
+        }
+
+        // Stages nothing landed in are dropped, keeping the rest in order
+        std::vector<int> renumber(deepest + 3, NO_STAGE);
+        for (int stage : stages)
+        {
+            if (stage != NO_STAGE)
+            {
+                renumber[stage] = 0;
+            }
+        }
+        stageCount = 0;
+        for (int& stage : renumber)
+        {
+            if (stage == 0)
+            {
+                stage = stageCount++;
+            }
+        }
+        for (int& stage : stages)
+        {
+            if (stage != NO_STAGE)
+            {
+                stage = renumber[stage];
+            }
+        }
+        return stages;
+    }
+
+    void RocketDesign::autoStage()
+    {
+        const std::vector<int> stages = autoStages(mStageCount);
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            mParts[i].stage = stages[i];
+        }
+        mCustomStaging = false;
+    }
+
+    void RocketDesign::updateStaging()
+    {
+        if (mParts.empty())
+        {
+            mStageCount = 0;
+            mCustomStaging = false;
+            return;
+        }
+        if (!mCustomStaging)
+        {
+            autoStage();
+            return;
+        }
+
+        // New parts go where autoStage would have put them, within the stages the player already has
+        int autoCount = 0;
+        const std::vector<int> stages = autoStages(autoCount);
+        for (PartIndex i = 0; i < partCount(); i++)
+        {
+            PlacedPart& placed = mParts[i];
+            const bool unstaged = placed.stage < 0 || placed.stage >= mStageCount;
+            if (!placed.pDefinition->isStageable() || !unstaged)
+            {
+                continue;
+            }
+            if (mStageCount == 0)
+            {
+                mStageCount = 1;
+            }
+            placed.stage = std::min(stages[i], mStageCount - 1);
+        }
+    }
+
+    void RocketDesign::setStaging(int stageCount, bool custom)
+    {
+        mStageCount = std::max(stageCount, 0);
+        mCustomStaging = custom;
     }
 }

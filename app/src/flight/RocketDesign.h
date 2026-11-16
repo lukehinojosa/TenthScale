@@ -9,6 +9,7 @@ namespace tenth
 {
     using PartIndex = int;
     constexpr PartIndex NO_PART = -1;
+    constexpr int NO_STAGE = -1;
 
     enum class Node
     {
@@ -34,6 +35,11 @@ namespace tenth
         Vec3d position;
         PartShape shape; // the definition's, or resized to fit what it sits on, as nose cones are
         int symmetryGroup = 0; // copies placed together in symmetry share a number; 0 for a part on its own
+        int stage = NO_STAGE; // stageable parts: which press of the staging key fires it, 0 first
+
+        // Resized parts weigh more or less with their surface, as nose cones do
+        double dryMass() const;
+        double wetMass() const { return dryMass() + pDefinition->fuelMass; }
     };
 
     // A rocket as built on the build screen: a tree of parts hanging off one root. A parent always comes before its
@@ -41,7 +47,7 @@ namespace tenth
     class RocketDesign
     {
     public:
-        void clear() { mParts.clear(); }
+        void clear();
         bool empty() const { return mParts.empty(); }
         int partCount() const { return (int)mParts.size(); }
         const PlacedPart& part(PartIndex index) const { return mParts.at(index); }
@@ -113,7 +119,42 @@ namespace tenth
         // The height of the highest point of any part. 0 for an empty design.
         double highestPoint() const;
 
+        // An engine with something on its bottom node wears a cylinder over its bell, flush with the parts around it
+        bool isShrouded(PartIndex index) const;
+
+        // Stages fire in order, stage 0 first. Each stageable part sits in one; a stage can be empty.
+        int stageCount() const { return mStageCount; }
+        std::vector<PartIndex> partsInStage(int stage) const;
+
+        // Moving parts or adding and removing stages marks the staging as the player's own, so edits keep it
+        void moveToStage(const std::vector<PartIndex>& parts, int stage);
+
+        // Puts an empty stage at this index, moving the stages from there on one later
+        void insertStage(int stage);
+
+        // Only an empty stage can be removed. Returns whether it was.
+        bool removeStage(int stage);
+
+        // Lays the stages out from the bottom of the rocket up: each section's engines, then the decoupler that drops
+        // it along with the engines above, and the parachute last
+        void autoStage();
+
+        // Gives stageable parts without a stage one. Until the player changes the staging, it's laid out afresh.
+        void updateStaging();
+
+        bool customStaging() const { return mCustomStaging; }
+
+        // For loading a saved design
+        void setSymmetryGroup(PartIndex index, int group) { mParts.at(index).symmetryGroup = group; }
+        void setStage(PartIndex index, int stage) { mParts.at(index).stage = stage; }
+        void setStaging(int stageCount, bool custom);
+
     private:
+        // Where autoStage would put each part, and how many stages that makes
+        std::vector<int> autoStages(int& stageCount) const;
+
         std::vector<PlacedPart> mParts;
+        int mStageCount = 0;
+        bool mCustomStaging = false;
     };
 }

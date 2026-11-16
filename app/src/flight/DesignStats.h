@@ -10,15 +10,14 @@ namespace tenth
     // Converts specific impulse in seconds to exhaust speed; fixed by definition, not the local gravity
     constexpr double STANDARD_GRAVITY = 9.80665;
 
-    // One burn: the engines that fire together, and the decoupler that drops them once they run dry
+    // One press of the staging key: its decouplers fire, its engines light, and they burn the fuel they can reach
     struct StageStats
     {
-        int depth = 0; // how many decouplers sit between these parts and the root
-        std::vector<PartIndex> engines;
-        PartIndex decoupler = NO_PART; // NO_PART for the last stage, which stays attached to the pod
+        std::vector<PartIndex> engines; // lit in this stage and still attached
+        PartIndex decoupler = NO_PART; // the first decoupler this stage fires, if any
 
-        double startMass = 0.0; // kg, with this stage's tanks full and lower stages already dropped
-        double endMass = 0.0; // kg, once this stage's fuel is spent
+        double startMass = 0.0; // kg, after this stage's decouplers have dropped what's below them
+        double endMass = 0.0; // kg, once the fuel these engines reach is spent
         double fuelMass = 0.0;
         double thrustVacuum = 0.0;
         double thrustSeaLevel = 0.0;
@@ -31,21 +30,27 @@ namespace tenth
 
     struct DesignStats
     {
-        std::vector<StageStats> stages; // in firing order, first burn first
+        std::vector<StageStats> stages; // one per stage of the design, in firing order
         double totalDeltaVVacuum = 0.0;
+        double liftoffTwr = 0.0; // of the first stage that lights an engine
+        bool hasEngines = false;
         Vec3d centerOfMass;
         Vec3d centerOfPressure;
         bool stable = true; // pressure center behind the mass center, so the air keeps the nose forward
     };
 
-    // How many decouplers lie on each part's path to the root, counting itself. Decouplers split the rocket into
-    // sections, and engines only draw fuel from tanks in their own section.
+    // How many decouplers lie on each part's path to the root, counting itself
     std::vector<int> sectionDepths(const RocketDesign& design);
+
+    // The part that starts each part's section: the root, or the decoupler above it. Engines only draw fuel from
+    // tanks in their own section.
+    std::vector<PartIndex> sectionStarts(const RocketDesign& design);
 
     // Where the air's push on the rocket's side balances, estimated from each part's side area. Fins have a lot of
     // side area for their size, so low fins pull it down behind the center of mass.
     Vec3d centerOfPressure(const RocketDesign& design);
 
-    // Stages fire from the deepest section up. surfaceGravity sets the weight for the launch pad's TWR.
+    // Goes through the stages in order. Lit engines keep burning in later stages until their fuel runs out or they're
+    // dropped. surfaceGravity sets the weight for the launch pad's TWR.
     DesignStats computeStats(const RocketDesign& design, double surfaceGravity);
 }

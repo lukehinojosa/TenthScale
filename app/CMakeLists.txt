@@ -21,6 +21,7 @@ add_library(flight STATIC
     src/flight/PartCatalog.cpp
     src/flight/RocketDesign.cpp
     src/flight/DesignStats.cpp
+    src/flight/DesignFile.cpp
     src/flight/PartDrawing.cpp
     src/flight/BuildScene.cpp
     src/flight/LaunchPadScene.cpp
@@ -35,6 +36,10 @@ add_executable(app
 )
 target_link_libraries(app PRIVATE engine shared solar flight)
 template_set_warnings(app)
+if(EMSCRIPTEN)
+    # Saved rockets are kept in the browser's storage
+    target_link_options(app PRIVATE "-lidbfs.js")
+endif()
 template_add_data_dir(app ${CMAKE_CURRENT_SOURCE_DIR}/assets assets)
 template_add_data_dir(app ${CMAKE_CURRENT_SOURCE_DIR}/config config)
 template_make_web_page(app index)

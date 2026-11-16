@@ -1,5 +1,7 @@
 #include "Game.h"
 
+#include "flight/DesignFile.h"
+
 #include <optional>
 #include <utility>
 
@@ -12,6 +14,8 @@ Game::Game(engine::GameConfig config)
 
 void Game::onInit()
 {
+    tenth::initRocketStorage();
+    mDesign = tenth::defaultRocket(mCatalog);
     switchTo(tenth::SceneId::Build);
 }
 

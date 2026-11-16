@@ -55,6 +55,16 @@ namespace tenth
         rlPopMatrix();
     }
 
+    PartShape drawnShape(const RocketDesign& design, PartIndex index)
+    {
+        PartShape shape = design.part(index).shape;
+        if (design.isShrouded(index))
+        {
+            shape.bottomDiameter = shape.topDiameter;
+        }
+        return shape;
+    }
+
     void drawDesign(const RocketDesign& design, Vector3 offset)
     {
         for (PartIndex i = 0; i < design.partCount(); i++)
@@ -63,7 +73,7 @@ namespace tenth
             const Color color = categoryColor(placed.pDefinition->category);
             const Vector3 position = { offset.x + (float)placed.position.x, offset.y + (float)placed.position.y,
                                        offset.z + (float)placed.position.z };
-            drawPart(placed.shape, position, (float)placed.angle, color, ColorBrightness(color, -0.5f));
+            drawPart(drawnShape(design, i), position, (float)placed.angle, color, ColorBrightness(color, -0.5f));
         }
     }
 

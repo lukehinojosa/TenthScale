@@ -8,6 +8,7 @@
 #include <raymath.h>
 #include <rlgl.h>
 
+#include "flight/DesignFile.h"
 #include "flight/PartDrawing.h"
 
 namespace tenth
@@ -15,7 +16,9 @@ namespace tenth
     namespace
     {
         constexpr float PANEL_WIDTH = 280.0f;
-        constexpr float RIGHT_PANEL_WIDTH = 250.0f;
+        constexpr float RIGHT_PANEL_WIDTH = 270.0f;
+        constexpr float ICON_SIZE = 40.0f;
+        constexpr const char* STAGE_PAYLOAD = "STAGE_PARTS";
         constexpr double ORBIT_DELTA_V = 3000.0; // m/s a rocket needs to reach low orbit, roughly, losses included
         constexpr float BUILD_HEIGHT = 20.0f; // the pod floats this high above the hall floor
         constexpr float FLOOR_CLEARANCE = 1.0f; // a long rocket is raised so its bottom stays this far off the floor
@@ -40,6 +43,8 @@ namespace tenth
         constexpr Color MASS_CENTER_COLOR = { 255, 210, 40, 255 };
         constexpr Color PRESSURE_CENTER_COLOR = { 70, 150, 255, 255 };
         constexpr ImVec4 WARNING_TEXT = { 1.0f, 0.55f, 0.35f, 1.0f };
+        constexpr ImU32 ICON_SYMBOL = IM_COL32(240, 242, 246, 255);
+        constexpr ImU32 ICON_HIGHLIGHT = IM_COL32(255, 230, 60, 255);
 
         constexpr PartCategory CATEGORY_ORDER[] = { PartCategory::Pod,      PartCategory::Tank, PartCategory::Engine,
                                                     PartCategory::Coupling, PartCategory::Aero, PartCategory::Utility };
@@ -80,6 +85,33 @@ namespace tenth
             }
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
+        }
+
+        // A white symbol for what the part does: an engine bell, a decoupler's split, or a parachute canopy
+        void drawStageSymbol(ImDrawList* pList, ImVec2 min, float size, const PartDefinition& definition)
+        {
+            auto at = [min, size](float x, float y)
+            {
+                return ImVec2(min.x + x * size, min.y + y * size);
+            };
+            if (definition.isEngine())
+            {
+                pList->AddRectFilled(at(0.38f, 0.14f), at(0.62f, 0.34f), ICON_SYMBOL);
+                pList->AddQuadFilled(at(0.40f, 0.34f), at(0.60f, 0.34f), at(0.78f, 0.84f), at(0.22f, 0.84f), ICON_SYMBOL);
+            }
+            else if (definition.separates)
+            {
+                pList->AddRectFilled(at(0.16f, 0.28f), at(0.84f, 0.42f), ICON_SYMBOL);
+                pList->AddRectFilled(at(0.16f, 0.58f), at(0.84f, 0.72f), ICON_SYMBOL);
+            }
+            else if (definition.hasParachute)
+            {
+                pList->PathArcTo(at(0.5f, 0.5f), size * 0.32f, PI, 2.0f * PI, 16);
+                pList->PathFillConvex(ICON_SYMBOL);
+                pList->AddLine(at(0.18f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
+                pList->AddLine(at(0.82f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
+                pList->AddLine(at(0.5f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
+            }
         }
 
         // The inside of the assembly building: floor, walls with beams and floor ledges, ceiling, and the big door
@@ -301,6 +333,8 @@ namespace tenth
 
     void BuildScene::onUpdate(double frameDt, double /*alpha*/)
     {
+        mDesign.updateStaging();
+        std::erase_if(mHighlighted, [this](PartIndex index) { return index >= mDesign.partCount(); });
         limitFocus();
         mOrbit.update(mCamera, (float)frameDt);
         const Ray ray = GetScreenToWorldRay(GetMousePosition(), mCamera);
@@ -344,6 +378,7 @@ namespace tenth
     void BuildScene::dropHeld()
     {
         mSelected = NO_PART;
+        mHighlighted.clear();
         if (mSnap.has_value())
         {
             if (mHeldFromPanel)
@@ -400,6 +435,7 @@ namespace tenth
             if (!moved)
             {
                 mSelected = mHovered;
+                mHighlighted.clear();
             }
         }
     }
@@ -437,8 +473,14 @@ namespace tenth
         }
     }
 
+    bool BuildScene::isHighlighted(PartIndex index) const
+    {
+        return std::find(mHighlighted.begin(), mHighlighted.end(), index) != mHighlighted.end();
+    }
+
     void BuildScene::pushUndo()
     {
+        mHighlighted.clear();
         mUndo.push_back(mDesign);
         if (mUndo.size() > UNDO_LIMIT)
         {
@@ -457,6 +499,7 @@ namespace tenth
         mDesign = mUndo.back();
         mUndo.pop_back();
         mSelected = NO_PART;
+        mHighlighted.clear();
     }
 
     void BuildScene::redo()
@@ -469,6 +512,7 @@ namespace tenth
         mDesign = mRedo.back();
         mRedo.pop_back();
         mSelected = NO_PART;
+        mHighlighted.clear();
     }
 
     void BuildScene::deleteSelected()
@@ -491,12 +535,13 @@ namespace tenth
         {
             const PlacedPart& placed = mDesign.part(i);
             Color color = categoryColor(placed.pDefinition->category);
-            if (sameSymmetry(i, mHovered))
+            const bool highlighted = isHighlighted(i);
+            if (sameSymmetry(i, mHovered) || highlighted)
             {
                 color = ColorBrightness(color, 0.25f);
             }
-            const Color outline = sameSymmetry(i, mSelected) ? SELECTED_OUTLINE : ColorBrightness(color, -0.5f);
-            drawPart(placed.shape, Vector3Add(toRaylib(placed.position), offset), (float)placed.angle, color, outline);
+            const Color outline = sameSymmetry(i, mSelected) || highlighted ? SELECTED_OUTLINE : ColorBrightness(color, -0.5f);
+            drawPart(drawnShape(mDesign, i), Vector3Add(toRaylib(placed.position), offset), (float)placed.angle, color, outline);
         }
 
         if (mShowMarkers && !mDesign.empty())
@@ -526,11 +571,10 @@ namespace tenth
         }
 
         // A see-through copy shows where the held parts would land, every symmetry copy included
-        auto drawGhost = [](const PlacedPart& placed, Vector3 position, bool valid)
+        auto drawGhost = [](const PartShape& shape, const PlacedPart& placed, Vector3 position, bool valid)
         {
             const Color color = valid ? categoryColor(placed.pDefinition->category) : INVALID_COLOR;
-            drawPart(placed.shape, position, (float)placed.angle, ColorAlpha(color, 0.45f),
-                     ColorAlpha(ColorBrightness(color, -0.4f), 0.8f));
+            drawPart(shape, position, (float)placed.angle, ColorAlpha(color, 0.45f), ColorAlpha(ColorBrightness(color, -0.4f), 0.8f));
         };
         if (mSnap.has_value())
         {
@@ -539,7 +583,7 @@ namespace tenth
             applySnap(preview, *mSnap);
             for (PartIndex i = mDesign.partCount(); i < preview.partCount(); i++)
             {
-                drawGhost(preview.part(i), Vector3Add(toRaylib(preview.part(i).position), offset), true);
+                drawGhost(drawnShape(preview, i), preview.part(i), Vector3Add(toRaylib(preview.part(i).position), offset), true);
             }
             return;
         }
@@ -549,7 +593,8 @@ namespace tenth
         const Vector3 rootPosition = valid ? offset : mHeldPoint;
         for (PartIndex i = 0; i < mHeld.partCount(); i++)
         {
-            drawGhost(mHeld.part(i), Vector3Add(toRaylib(mHeld.part(i).position - mHeld.part(0).position), rootPosition), valid);
+            const Vector3 position = Vector3Add(toRaylib(mHeld.part(i).position - mHeld.part(0).position), rootPosition);
+            drawGhost(drawnShape(mHeld, i), mHeld.part(i), position, valid);
         }
     }
 
@@ -564,7 +609,7 @@ namespace tenth
 
         const ImGuiStyle& style = ImGui::GetStyle();
         const float footerHeight =
-            ImGui::GetTextLineHeightWithSpacing() * 4.0f + ImGui::GetFrameHeightWithSpacing() * 4.0f + style.ItemSpacing.y * 2.0f;
+            ImGui::GetTextLineHeightWithSpacing() * 4.0f + ImGui::GetFrameHeightWithSpacing() * 5.0f + style.ItemSpacing.y * 2.0f;
         ImGui::BeginChild("PartList", { 0.0f, -footerHeight });
         drawPartList();
         ImGui::EndChild();
@@ -699,13 +744,27 @@ namespace tenth
         ImGui::EndDisabled();
 
         ImGui::BeginDisabled(mDesign.empty());
-        if (ImGui::Button("Clear", { -1.0f, 0.0f }))
+        if (ImGui::Button("Clear", { third, 0.0f }))
         {
             pushUndo();
             mDesign.clear();
             mSelected = NO_PART;
         }
+        ImGui::SameLine();
+        if (ImGui::Button("Save", { third, 0.0f }))
+        {
+            mFileMessage.clear();
+            ImGui::OpenPopup("Save rocket");
+        }
         ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Load", { third, 0.0f }))
+        {
+            mFileMessage.clear();
+            ImGui::OpenPopup("Load rocket");
+        }
+        drawSavePopup();
+        drawLoadPopup();
         ImGui::BeginDisabled(mDesign.empty() || mDesign.part(0).pDefinition->category != PartCategory::Pod);
         if (ImGui::Button("Roll out to the launch pad", { -1.0f, 0.0f }))
         {
@@ -753,70 +812,7 @@ namespace tenth
         ImGui::Text("Mass: %.2f t full, %.2f t empty", mDesign.totalMass() / 1000.0, mDesign.dryMass() / 1000.0);
         ImGui::Text("Height: %.1f m", mDesign.highestPoint() - mDesign.lowestPoint());
 
-        ImGui::SeparatorText("Stages");
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("In firing order. Delta-v in vacuum, TWR on the launch pad.");
-        ImGui::PopStyleColor();
-        if (stats.stages.empty())
-        {
-            ImGui::TextColored(WARNING_TEXT, "No engines yet");
-        }
-        for (size_t k = 0; k < stats.stages.size(); k++)
-        {
-            const StageStats& stage = stats.stages[k];
-            ImGui::Spacing();
-            ImGui::Text("Stage %d", (int)k + 1);
-            ImGui::Indent();
-
-            // Engines of the same kind are listed once with a count
-            std::vector<const PartDefinition*> kinds;
-            for (PartIndex engine : stage.engines)
-            {
-                const PartDefinition* pDefinition = mDesign.part(engine).pDefinition;
-                if (std::find(kinds.begin(), kinds.end(), pDefinition) == kinds.end())
-                {
-                    kinds.push_back(pDefinition);
-                }
-            }
-            for (const PartDefinition* pKind : kinds)
-            {
-                int count = 0;
-                for (PartIndex engine : stage.engines)
-                {
-                    if (mDesign.part(engine).pDefinition == pKind)
-                    {
-                        count++;
-                    }
-                }
-                ImGui::TextDisabled("%dx %s", count, pKind->name.c_str());
-            }
-
-            ImGui::Text("Delta-v: %.0f m/s", stage.deltaVVacuum);
-            if (k == 0 && stage.twrSeaLevel < 1.0)
-            {
-                ImGui::TextColored(WARNING_TEXT, "TWR: %.2f, too heavy to lift off", stage.twrSeaLevel);
-            }
-            else
-            {
-                ImGui::Text("TWR: %.2f", stage.twrSeaLevel);
-            }
-            if (stage.fuelMass <= 0.0)
-            {
-                ImGui::TextColored(WARNING_TEXT, "No fuel above the next decoupler");
-            }
-            if (stage.decoupler != NO_PART)
-            {
-                ImGui::TextDisabled("Then drops at its decoupler");
-            }
-            ImGui::Unindent();
-        }
-
-        ImGui::Separator();
-        ImGui::Text("Total delta-v: %.0f m/s", stats.totalDeltaVVacuum);
-        if (stats.totalDeltaVVacuum < ORBIT_DELTA_V)
-        {
-            ImGui::TextDisabled("Orbit takes roughly %.0f m/s", ORBIT_DELTA_V);
-        }
+        drawStaging(stats);
 
         ImGui::SeparatorText("Balance");
         ImGui::Checkbox("Show markers", &mShowMarkers);
@@ -839,5 +835,354 @@ namespace tenth
             ImGui::PopStyleColor();
         }
         ImGui::End();
+    }
+
+    void BuildScene::drawStaging(const DesignStats& stats)
+    {
+        ImGui::SeparatorText("Staging");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("Fires from the bottom up. Drag icons between stages; double-click a stack to spread it out.");
+        ImGui::PopStyleColor();
+
+        const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+        ImGui::BeginDisabled(!mDesign.customStaging());
+        if (ImGui::Button("Auto-stage", { half, 0.0f }))
+        {
+            pushUndo();
+            mDesign.autoStage();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("New stage", { half, 0.0f }))
+        {
+            mPendingInsert = mDesign.stageCount();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Adds an empty stage that fires last. Drop icons here to move them into a new one.");
+        }
+
+        // Dropping icons on the button puts them in a new last stage
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (ImGui::AcceptDragDropPayload(STAGE_PAYLOAD) != nullptr)
+            {
+                mPendingInsert = mDesign.stageCount();
+                mPendingMove = mDraggedIcon;
+                mPendingMoveStage = mDesign.stageCount();
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        for (int stage = mDesign.stageCount() - 1; stage >= 0; stage--)
+        {
+            const StageStats empty;
+            drawStage(stage, stage < (int)stats.stages.size() ? stats.stages[stage] : empty);
+        }
+
+        // Applied once the stages are drawn, so none of them shifted part way through
+        if (mPendingInsert != NO_STAGE || mPendingRemove != NO_STAGE || mPendingMoveStage != NO_STAGE)
+        {
+            pushUndo();
+            mExpanded.clear();
+        }
+        if (mPendingInsert != NO_STAGE)
+        {
+            mDesign.insertStage(mPendingInsert);
+        }
+        if (mPendingRemove != NO_STAGE)
+        {
+            mDesign.removeStage(mPendingRemove);
+        }
+        if (mPendingMoveStage != NO_STAGE)
+        {
+            mDesign.moveToStage(mPendingMove, mPendingMoveStage);
+            mHighlighted = mPendingMove;
+        }
+        mPendingInsert = NO_STAGE;
+        mPendingRemove = NO_STAGE;
+        mPendingMoveStage = NO_STAGE;
+        mPendingMove.clear();
+
+        ImGui::Separator();
+        ImGui::Text("Total delta-v: %.0f m/s", stats.totalDeltaVVacuum);
+        if (!stats.hasEngines)
+        {
+            ImGui::TextColored(WARNING_TEXT, "No engines yet");
+        }
+        else if (stats.liftoffTwr < 1.0)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, WARNING_TEXT);
+            ImGui::TextWrapped("Liftoff TWR %.2f: too heavy to lift off", stats.liftoffTwr);
+            ImGui::PopStyleColor();
+        }
+        if (stats.totalDeltaVVacuum < ORBIT_DELTA_V)
+        {
+            ImGui::TextDisabled("Orbit takes roughly %.0f m/s", ORBIT_DELTA_V);
+        }
+    }
+
+    void BuildScene::drawStage(int stage, const StageStats& stats)
+    {
+        ImGui::PushID(stage);
+        const std::vector<PartIndex> parts = mDesign.partsInStage(stage);
+        ImGui::BeginChild("Stage", { 0.0f, 0.0f }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::Text("Stage %d", stage + 1);
+        const float buttonWidth = ImGui::GetFrameHeight();
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - buttonWidth * 2.0f - ImGui::GetStyle().ItemSpacing.x);
+        if (ImGui::Button("+", { buttonWidth, 0.0f }))
+        {
+            mPendingInsert = stage + 1;
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Add an empty stage above this one");
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!parts.empty());
+        if (ImGui::Button("x", { buttonWidth, 0.0f }))
+        {
+            mPendingRemove = stage;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ImGui::SetTooltip(parts.empty() ? "Remove this stage" : "Only an empty stage can be removed");
+        }
+
+        // Parts of one kind stack onto a single icon, unless that stack has been spread out
+        std::vector<std::pair<const PartDefinition*, std::vector<PartIndex>>> groups;
+        for (PartIndex index : parts)
+        {
+            const PartDefinition* pDefinition = mDesign.part(index).pDefinition;
+            auto it = std::find_if(groups.begin(), groups.end(), [pDefinition](const auto& group) { return group.first == pDefinition; });
+            if (it == groups.end())
+            {
+                groups.push_back({ pDefinition, { index } });
+            }
+            else
+            {
+                it->second.push_back(index);
+            }
+        }
+        const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+        bool first = true;
+        auto place = [&first, rowRight]()
+        {
+            if (!first && ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + ICON_SIZE <= rowRight)
+            {
+                ImGui::SameLine();
+            }
+            first = false;
+        };
+        for (const auto& [pDefinition, members] : groups)
+        {
+            const bool expanded = std::find(mExpanded.begin(), mExpanded.end(), std::make_pair(stage, pDefinition)) != mExpanded.end();
+            if (expanded || members.size() == 1)
+            {
+                for (PartIndex index : members)
+                {
+                    place();
+                    ImGui::PushID(index);
+                    drawStageIcon(*pDefinition, { index }, stage, false);
+                    ImGui::PopID();
+                }
+            }
+            else
+            {
+                place();
+                ImGui::PushID(pDefinition->id.c_str());
+                drawStageIcon(*pDefinition, members, stage, true);
+                ImGui::PopID();
+            }
+        }
+
+        if (parts.empty())
+        {
+            ImGui::TextDisabled("Empty");
+        }
+        else if (!stats.engines.empty())
+        {
+            ImGui::Text("Delta-v %.0f m/s   TWR %.2f", stats.deltaVVacuum, stats.twrSeaLevel);
+        }
+        else if (stats.decoupler != NO_PART)
+        {
+            ImGui::TextDisabled("Drops the stage below");
+        }
+        ImGui::EndChild();
+
+        if (ImGui::BeginDragDropTarget())
+        {
+            if (ImGui::AcceptDragDropPayload(STAGE_PAYLOAD) != nullptr)
+            {
+                mPendingMove = mDraggedIcon;
+                mPendingMoveStage = stage;
+            }
+            ImGui::EndDragDropTarget();
+        }
+        ImGui::PopID();
+    }
+
+    void BuildScene::drawStageIcon(const PartDefinition& definition, const std::vector<PartIndex>& parts, int stage, bool grouped)
+    {
+        ImGui::InvisibleButton("icon", { ICON_SIZE, ICON_SIZE });
+        const bool hovered = ImGui::IsItemHovered();
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+        {
+            mHighlighted = parts;
+            mSelected = NO_PART;
+        }
+
+        // Double-clicking a stack spreads it out; double-clicking a spread-out icon stacks its kind again
+        if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            const std::pair<int, const PartDefinition*> key = { stage, &definition };
+            const auto it = std::find(mExpanded.begin(), mExpanded.end(), key);
+            if (it != mExpanded.end())
+            {
+                mExpanded.erase(it);
+            }
+            else if (grouped)
+            {
+                mExpanded.push_back(key);
+            }
+        }
+        if (ImGui::BeginDragDropSource())
+        {
+            mDraggedIcon = parts;
+            const int count = (int)parts.size();
+            ImGui::SetDragDropPayload(STAGE_PAYLOAD, &count, sizeof(count));
+            ImGui::Text("Move %dx %s", count, definition.name.c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        bool lit = false;
+        for (PartIndex index : parts)
+        {
+            lit = lit || isHighlighted(index) || sameSymmetry(index, mSelected);
+        }
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        const Color background = ColorBrightness(categoryColor(definition.category), hovered ? -0.15f : -0.35f);
+        pList->AddRectFilled(min, max, IM_COL32(background.r, background.g, background.b, 255), 6.0f);
+        if (lit)
+        {
+            pList->AddRect(min, max, ICON_HIGHLIGHT, 6.0f, 0, 2.5f);
+        }
+        drawStageSymbol(pList, min, ICON_SIZE, definition);
+        if (parts.size() > 1)
+        {
+            char count[8];
+            std::snprintf(count, sizeof(count), "%d", (int)parts.size());
+            const ImVec2 textSize = ImGui::CalcTextSize(count);
+            const ImVec2 corner = { max.x - textSize.x - 3.0f, max.y - textSize.y - 1.0f };
+            pList->AddRectFilled({ corner.x - 2.0f, corner.y }, max, IM_COL32(20, 22, 26, 220), 4.0f);
+            pList->AddText(corner, ICON_SYMBOL, count);
+        }
+
+        if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+        {
+            ImGui::BeginTooltip();
+            if (parts.size() > 1)
+            {
+                ImGui::Text("%dx %s", (int)parts.size(), definition.name.c_str());
+            }
+            else
+            {
+                ImGui::TextUnformatted(definition.name.c_str());
+            }
+            ImGui::TextDisabled("Click to light it up on the rocket, drag to another stage");
+            if (grouped)
+            {
+                ImGui::TextDisabled("Double-click to spread out");
+            }
+            ImGui::EndTooltip();
+        }
+    }
+
+    void BuildScene::drawSavePopup()
+    {
+        if (!ImGui::BeginPopup("Save rocket"))
+        {
+            return;
+        }
+        ImGui::TextUnformatted("Name");
+        ImGui::SetNextItemWidth(220.0f);
+        const bool entered = ImGui::InputText("##name", mRocketName, sizeof(mRocketName), ImGuiInputTextFlags_EnterReturnsTrue);
+        const std::string name = cleanRocketName(mRocketName);
+        const std::vector<std::string> saved = savedRocketNames();
+        if (std::find(saved.begin(), saved.end(), name) != saved.end())
+        {
+            ImGui::TextDisabled("Replaces the saved %s", name.c_str());
+        }
+        ImGui::BeginDisabled(name.empty());
+        if (ImGui::Button("Save", { 220.0f, 0.0f }) || (entered && !name.empty()))
+        {
+            if (saveRocket(name, mDesign))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            else
+            {
+                mFileMessage = "Couldn't save it";
+            }
+        }
+        ImGui::EndDisabled();
+        if (!mFileMessage.empty())
+        {
+            ImGui::TextColored(WARNING_TEXT, "%s", mFileMessage.c_str());
+        }
+        ImGui::EndPopup();
+    }
+
+    void BuildScene::drawLoadPopup()
+    {
+        if (!ImGui::BeginPopup("Load rocket"))
+        {
+            return;
+        }
+        std::optional<RocketDesign> loaded;
+        std::string loadedName;
+        if (ImGui::Selectable("Default rocket"))
+        {
+            loaded = defaultRocket(mCatalog);
+            loadedName = "My rocket";
+        }
+        ImGui::SeparatorText("Saved");
+        const std::vector<std::string> saved = savedRocketNames();
+        if (saved.empty())
+        {
+            ImGui::TextDisabled("Nothing saved yet");
+        }
+        for (const std::string& name : saved)
+        {
+            if (ImGui::Selectable(name.c_str()))
+            {
+                loaded = loadRocket(name, mCatalog);
+                loadedName = name;
+                if (!loaded.has_value())
+                {
+                    mFileMessage = "Couldn't read " + name;
+                }
+            }
+        }
+        if (loaded.has_value())
+        {
+            pushUndo();
+            mDesign = *loaded;
+            mSelected = NO_PART;
+            mExpanded.clear();
+            std::snprintf(mRocketName, sizeof(mRocketName), "%s", loadedName.c_str());
+            ImGui::CloseCurrentPopup();
+        }
+        if (!mFileMessage.empty())
+        {
+            ImGui::TextColored(WARNING_TEXT, "%s", mFileMessage.c_str());
+        }
+        ImGui::EndPopup();
     }
 }

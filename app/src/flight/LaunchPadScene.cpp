@@ -94,10 +94,10 @@ namespace tenth
         ImGui::Begin("Launch pad", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
         ImGui::Text("Mass: %.2f t", mDesign.totalMass() / 1000.0);
         ImGui::Text("Height: %.1f m", mDesign.highestPoint() - mDesign.lowestPoint());
-        ImGui::Text("Stages: %d   Delta-v: %.0f m/s", (int)stats.stages.size(), stats.totalDeltaVVacuum);
-        if (!stats.stages.empty())
+        ImGui::Text("Stages: %d   Delta-v: %.0f m/s", mDesign.stageCount(), stats.totalDeltaVVacuum);
+        if (stats.liftoffTwr > 0.0)
         {
-            ImGui::Text("Liftoff TWR: %.2f", stats.stages.front().twrSeaLevel);
+            ImGui::Text("Liftoff TWR: %.2f", stats.liftoffTwr);
         }
         ImGui::TextDisabled("Right-drag orbit, W/S lift, wheel zoom");
         if (ImGui::Button("Back to assembly"))

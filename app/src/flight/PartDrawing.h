@@ -18,6 +18,9 @@ namespace tenth
     // Draws a part centred on position; angle turns box parts to face out from the side they're on
     void drawPart(const PartShape& shape, Vector3 position, float angle, Color color, Color outline);
 
+    // The part's shape as drawn: a shrouded engine is a cylinder as wide as its top
+    PartShape drawnShape(const RocketDesign& design, PartIndex index);
+
     // Draws a whole rocket in its parts' colours, its root at offset
     void drawDesign(const RocketDesign& design, Vector3 offset);
 

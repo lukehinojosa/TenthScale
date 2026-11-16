@@ -317,3 +317,28 @@ TEST_CASE("A nose cone resizes to the diameter it sits on, keeping its proportio
     const PartIndex below = design.attachStack(pod, Node::Bottom, def("tank-small"));
     CHECK(design.part(below).shape.topDiameter == doctest::Approx(1.25));
 }
+
+TEST_CASE("A resized nose cone weighs less with its smaller surface")
+{
+    RocketDesign design;
+    const PartIndex pod = design.setRoot(def("pod"));
+    const PartIndex nose = design.attachStack(pod, Node::Top, def("nose-cone"));
+    const double scale = 0.6 / 1.25;
+    CHECK(design.part(nose).dryMass() == doctest::Approx(50.0 * scale * scale));
+    CHECK(design.totalMass() == doctest::Approx(800.0 + 50.0 * scale * scale));
+
+    // Parts that keep their size keep their mass
+    const PartIndex tank = design.attachStack(pod, Node::Bottom, def("tank-small"));
+    CHECK(design.part(tank).wetMass() == doctest::Approx(1125.0));
+}
+
+TEST_CASE("An engine with something under it is shrouded")
+{
+    RocketDesign design = simpleStack();
+    CHECK_FALSE(design.isShrouded(2));
+    design.attachStack(2, Node::Bottom, def("decoupler"));
+    CHECK(design.isShrouded(2));
+    CHECK_FALSE(design.isShrouded(1));
+    design.remove(3);
+    CHECK_FALSE(design.isShrouded(2));
+}

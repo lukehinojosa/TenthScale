@@ -1,6 +1,8 @@
 #pragma once
 
 #include <optional>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <raylib.h>
@@ -45,6 +47,11 @@ namespace tenth
         void drawFooter();
         void drawHeldTooltip() const;
         void drawRocketPanel();
+        void drawStaging(const DesignStats& stats);
+        void drawStage(int stage, const StageStats& stats);
+        void drawStageIcon(const PartDefinition& definition, const std::vector<PartIndex>& parts, int stage, bool grouped);
+        void drawSavePopup();
+        void drawLoadPopup();
         void drawMarkers(Vector3 offset) const;
 
         bool mouseOverViewport() const;
@@ -63,6 +70,9 @@ namespace tenth
         void limitFocus();
 
         PartIndex pickPart(Ray ray) const;
+
+        // Icons picked in the staging panel light up their parts on the rocket
+        bool isHighlighted(PartIndex index) const;
 
         void pushUndo();
         void undo();
@@ -92,5 +102,18 @@ namespace tenth
 
         std::vector<RocketDesign> mUndo;
         std::vector<RocketDesign> mRedo;
+
+        std::vector<PartIndex> mHighlighted;
+        std::vector<std::pair<int, const PartDefinition*>> mExpanded; // staging groups spread out into single icons
+        std::vector<PartIndex> mDraggedIcon; // parts on the staging icon being dragged
+
+        // Staging changes wait until the panel is drawn, so the stages don't shift under it
+        std::vector<PartIndex> mPendingMove;
+        int mPendingMoveStage = NO_STAGE;
+        int mPendingInsert = NO_STAGE;
+        int mPendingRemove = NO_STAGE;
+
+        char mRocketName[48] = "My rocket";
+        std::string mFileMessage;
     };
 }
