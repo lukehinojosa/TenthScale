@@ -1,22 +1,16 @@
 #pragma once
 
-#include <memory>
-#include <vector>
-
-#include <cyclone/cyclone.h>
-#include <engine/FlyCamera.h>
 #include <engine/Game.h>
 
-// A physics box, plus its pose before the last physics step so drawing can blend between steps
-struct Box
-{
-    cyclone::RigidBody body;
-    cyclone::BoxCollider collider;
-    cyclone::Vector3 previousPosition;
-    cyclone::Quaternion previousOrientation;
-    Color color{};
-};
+#include "flight/BuildScene.h"
+#include "flight/FlightScene.h"
+#include "flight/LaunchPadScene.h"
+#include "flight/PartCatalog.h"
+#include "flight/RocketDesign.h"
+#include "solar/CircularSolarSystem.h"
+#include "solar/PlanetsScene.h"
 
+// Owns the Solar System, the parts, the rocket being built, and the scenes; forwards engine hooks to the current scene
 class Game : public engine::Game
 {
 public:
@@ -27,17 +21,18 @@ private:
     void onFixedUpdate(double dt) override;
     void onUpdate(double frameDt, double alpha) override;
     void onDraw3D() override;
+    void onDraw2D() override;
     void onGui() override;
+    void onShutdown() override;
 
-    void resetScene();
-    void addBox(Vector3 position, Vector3 halfSize, Color color, Quaternion orientation = { 0.0f, 0.0f, 0.0f, 1.0f });
-    void dropBox();
+    void switchTo(tenth::SceneId id);
 
-    // The world keeps pointers to the bodies and colliders, so each box lives at a fixed address
-    cyclone::World mWorld;
-    cyclone::PlaneCollider mGround;
-    std::vector<std::unique_ptr<Box>> mBoxes;
-
-    engine::FlyCamera mFlyCamera;
-    float mAlpha = 0.0f;
+    tenth::CircularSolarSystem mSolarSystem;
+    tenth::PartCatalog mCatalog = tenth::PartCatalog::standard();
+    tenth::RocketDesign mDesign; // built on the build screen, flown on launch
+    tenth::BuildScene mBuildScene;
+    tenth::LaunchPadScene mLaunchPadScene;
+    tenth::FlightScene mFlightScene;
+    tenth::PlanetsScene mPlanetsScene;
+    tenth::Scene* mpScene = nullptr;
 };

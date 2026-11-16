@@ -8,7 +8,7 @@ int main()
 {
     // Window and timing settings come from config/game.yaml; missing keys keep these defaults
     engine::GameConfig settings;
-    settings.title = "Game";
+    settings.title = "Tenth Scale";
 #ifdef TEMPLATE_HAS_CONFIG
     core::Config config;
     config.load(core::Config::findFile("game.yaml", "GAME_CONFIG"));
