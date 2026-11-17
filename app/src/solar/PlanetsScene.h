@@ -12,6 +12,7 @@
 
 namespace tenth
 {
+    struct Body;
     // Calvin's rotating planets: ten planets pulled around a fixed sun by each other's gravity, bouncing off on contact
     class PlanetsScene : public Scene
     {
@@ -24,6 +25,7 @@ namespace tenth
         void onDraw3D() override;
         void onGui() override;
         void onShutdown() override;
+        
 
     private:
         static constexpr int PLANET_COUNT = 10;
@@ -53,5 +55,8 @@ namespace tenth
         Model mPlanetModel{};
         Model mSunModel{};
         bool mModelsReady = false; // made on first entry, since they need the window's graphics context
+
+    public:
+        std::array<Body, PLANET_COUNT + 1> getBodies() { return mBodies; };
     };
 }

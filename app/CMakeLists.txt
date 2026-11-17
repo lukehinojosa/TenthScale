@@ -10,6 +10,7 @@ template_set_warnings(shared)
 # Solar System: planet and moon data, orbits, and sphere-of-influence checks (Calvin)
 add_library(solar STATIC
     src/solar/CircularSolarSystem.cpp
+    src/solar/KeplerSolarSystem.cpp
     src/solar/PlanetsScene.cpp
 )
 target_link_libraries(solar PUBLIC shared cyclone)
@@ -35,6 +36,7 @@ add_executable(app
     src/main.cpp
     src/Game.cpp
 )
+
 target_link_libraries(app PRIVATE engine shared solar flight)
 template_set_warnings(app)
 if(EMSCRIPTEN)

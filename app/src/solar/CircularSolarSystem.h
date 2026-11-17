@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "shared/SolarSystem.h"
+#include "solar/PlanetsScene.h"
 
 namespace tenth
 {

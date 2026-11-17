@@ -2,6 +2,7 @@
 
 namespace tenth
 {
+
     BodyId SolarSystem::findBody(std::string_view name) const
     {
         for (BodyId id = 0; id < bodyCount(); id++)
