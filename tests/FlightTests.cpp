@@ -5,6 +5,7 @@
 #include <numbers>
 
 #include <flight/Rocket.h>
+#include <flight/SurfaceFrame.h>
 #include <solar/CircularSolarSystem.h>
 
 using namespace tenth;
@@ -87,4 +88,27 @@ TEST_CASE("Entering the Moon's sphere of influence switches reference without th
     const Vec3d absoluteAfter = rocket.absolutePosition(system, time + 1.0);
     CHECK((absoluteAfter - absoluteBefore - absoluteVelBefore).length() < 5.0);
     CHECK((rocket.absoluteVelocity(system, time + 1.0) - absoluteVelBefore).length() < 1.0);
+}
+
+TEST_CASE("The pad's frame stands upright on the surface with small numbers near it")
+{
+    const double radius = 637.0e3;
+    const SurfaceFrame pad = SurfaceFrame::below({ radius + 12.0, 0.0, 0.0 }, radius);
+    CHECK(pad.origin.x == doctest::Approx(radius));
+    CHECK(pad.toLocal({ radius + 12.0, 0.0, 0.0 }).y == doctest::Approx(12.0));
+    CHECK(pad.toLocal({ radius + 12.0, 0.0, 0.0 }).x == doctest::Approx(0.0));
+
+    // The axes are square to each other and right-handed, so drawing in them doesn't mirror anything
+    CHECK(pad.east.dot(pad.up) == doctest::Approx(0.0));
+    CHECK(pad.east.cross(pad.up).dot(pad.south) == doctest::Approx(1.0));
+    CHECK(pad.rotate(pad.up).y == doctest::Approx(1.0));
+
+    // The planet's centre is straight down, a radius away
+    const Vec3d centre = pad.toLocal({});
+    CHECK(centre.y == doctest::Approx(-radius));
+    CHECK(std::abs(centre.x) + std::abs(centre.z) == doctest::Approx(0.0));
+
+    const SurfaceFrame pole = SurfaceFrame::below({ 0.0, radius, 0.0 }, radius);
+    CHECK(pole.east.length() == doctest::Approx(1.0));
+    CHECK(pole.south.length() == doctest::Approx(1.0));
 }

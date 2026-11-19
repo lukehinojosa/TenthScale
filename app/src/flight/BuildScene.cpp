@@ -768,7 +768,7 @@ namespace tenth
         ImGui::BeginDisabled(mDesign.empty() || mDesign.part(0).pDefinition->category != PartCategory::Pod);
         if (ImGui::Button("Roll out to the launch pad", { -1.0f, 0.0f }))
         {
-            requestScene(SceneId::LaunchPad);
+            requestScene(SceneId::Flight);
         }
         ImGui::EndDisabled();
         if (ImGui::Button("Rotating planets", { -1.0f, 0.0f }))

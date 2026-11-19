@@ -7,7 +7,7 @@
 
 Game::Game(engine::GameConfig config)
     : engine::Game(std::move(config)), mBuildScene(getCamera(), mCatalog, mDesign, mSolarSystem),
-      mLaunchPadScene(getCamera(), mDesign, mSolarSystem), mFlightScene(mDesign, mSolarSystem),
+      mFlightScene(getCamera(), mDesign, mSolarSystem),
       mPlanetsScene(getCamera())
 {
 }
@@ -29,9 +29,6 @@ void Game::switchTo(tenth::SceneId id)
     {
     case tenth::SceneId::Build:
         mpScene = &mBuildScene;
-        break;
-    case tenth::SceneId::LaunchPad:
-        mpScene = &mLaunchPadScene;
         break;
     case tenth::SceneId::Flight:
         mpScene = &mFlightScene;
@@ -83,7 +80,6 @@ void Game::onGui()
 void Game::onShutdown()
 {
     mBuildScene.onShutdown();
-    mLaunchPadScene.onShutdown();
     mFlightScene.onShutdown();
     mPlanetsScene.onShutdown();
 }

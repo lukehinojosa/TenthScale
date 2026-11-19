@@ -4,7 +4,6 @@
 
 #include "flight/BuildScene.h"
 #include "flight/FlightScene.h"
-#include "flight/LaunchPadScene.h"
 #include "flight/PartCatalog.h"
 #include "flight/RocketDesign.h"
 #include "solar/CircularSolarSystem.h"
@@ -31,7 +30,6 @@ private:
     tenth::PartCatalog mCatalog = tenth::PartCatalog::standard();
     tenth::RocketDesign mDesign; // built on the build screen, flown on launch
     tenth::BuildScene mBuildScene;
-    tenth::LaunchPadScene mLaunchPadScene;
     tenth::FlightScene mFlightScene;
     tenth::PlanetsScene mPlanetsScene;
     tenth::Scene* mpScene = nullptr;

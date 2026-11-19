@@ -7,7 +7,6 @@ namespace tenth
     enum class SceneId
     {
         Build,
-        LaunchPad,
         Flight,
         Planets,
     };
