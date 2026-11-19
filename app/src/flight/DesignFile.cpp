@@ -150,22 +150,34 @@ namespace tenth
             return part;
         };
 
+        // Adds a stage below: a decoupler on top, then its tanks, then its engine. Returns the engine.
+        auto addStage = [&](PartIndex above, const char* tankId, int tanks, const char* engineId)
+        {
+            PartIndex below = design.attachStack(above, Node::Bottom, find("decoupler"));
+            for (int i = 0; i < tanks; i++)
+            {
+                below = design.attachStack(below, Node::Bottom, find(tankId));
+            }
+            return design.attachStack(below, Node::Bottom, find(engineId));
+        };
+
+        // The pod rides on top under its nose cone, and drops everything else before its parachute opens
         const PartIndex pod = design.setRoot(find("pod"));
         design.attachStack(pod, Node::Top, find("nose-cone"));
-        const PartIndex upperTank = design.attachStack(pod, Node::Bottom, find("tank-large"));
-        const PartIndex vacuum = design.attachStack(upperTank, Node::Bottom, find("engine-vacuum"));
-        design.attachDesignRadial(vacuum, 0.0, 0.0, single("landing-leg"), 4);
-        PartIndex below = design.attachStack(vacuum, Node::Bottom, find("decoupler"));
-        for (int i = 0; i < 2; i++)
-        {
-            below = design.attachStack(below, Node::Bottom, find("tank-large"));
-        }
-        const PartIndex lifter = design.attachStack(below, Node::Bottom, find("engine-lifter"));
 
-        // Fins sit flush with the bottom of the engine, between the legs' angles
-        const double finHeight = find("fin").shape.height;
-        const double lifterHeight = find("engine-lifter").shape.height;
-        design.attachDesignRadial(lifter, std::numbers::pi / 4.0, (finHeight - lifterHeight) * 0.5, single("fin"), 4);
+        // The lander sets down on its legs, lifts off again, and burns for home
+        const PartIndex lander = addStage(pod, "tank-medium", 1, "engine-vacuum");
+        design.attachDesignRadial(lander, 0.0, 0.0, single("landing-leg"), 4);
+
+        // The third stage pushes out of Earth orbit toward the Moon, and the second finishes the climb to orbit
+        const PartIndex third = addStage(lander, "tank-medium", 1, "engine-vacuum");
+        const PartIndex second = addStage(third, "tank-large", 2, "engine-lifter");
+
+        // The first stage lifts it all off the pad. A stack this long needs big fins, flush with the engine's bottom.
+        const PartIndex first = addStage(second, "tank-large", 3, "engine-heavy");
+        const double finHeight = find("fin-large").shape.height;
+        const double engineHeight = find("engine-heavy").shape.height;
+        design.attachDesignRadial(first, std::numbers::pi / 4.0, (finHeight - engineHeight) * 0.5, single("fin-large"), 4);
         design.autoStage();
         return design;
     }

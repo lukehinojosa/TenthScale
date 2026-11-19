@@ -20,6 +20,7 @@ template_set_warnings(solar)
 add_library(flight STATIC
     src/flight/Rocket.cpp
     src/flight/Vehicle.cpp
+    src/flight/Aerodynamics.cpp
     src/flight/PartCatalog.cpp
     src/flight/RocketDesign.cpp
     src/flight/DesignStats.cpp

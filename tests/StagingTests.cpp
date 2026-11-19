@@ -9,6 +9,8 @@
 #include <flight/Vehicle.h>
 #include <solar/CircularSolarSystem.h>
 
+#include "TestRockets.h"
+
 using namespace tenth;
 
 namespace
@@ -50,7 +52,7 @@ namespace
 
         Flight()
         {
-            const Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+            const Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
             rocket.setVehicle(vehicle);
             rocket.place(earth, { system.body(earth).radius + vehicle.groundClearance, 0.0, 0.0 }, {});
         }
@@ -69,7 +71,7 @@ namespace
 
 TEST_CASE("Splitting at the decoupler shares out the parts and fuel, and uncovers the upper engine's bell")
 {
-    Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+    Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
     const int parts = vehicle.design.partCount();
     const double mass = vehicle.mass;
     const double fuel = totalFuel(vehicle);
@@ -163,7 +165,7 @@ TEST_CASE("After staging, the delta-v left is the upper stage's")
     flight.run(200.0);
     flight.rocket.fireNextStage();
     const DesignStats left = computeStats(flight.rocket.vehicle(), 9.81);
-    const DesignStats full = computeStats(defaultRocket(catalog()), 9.81);
+    const DesignStats full = computeStats(twoStageRocket(catalog()), 9.81);
     CHECK(left.totalDeltaVVacuum == doctest::Approx(full.stages[1].deltaVVacuum).epsilon(0.01));
 }
 
@@ -294,3 +296,32 @@ TEST_CASE("A dropped stage thrown back at the rocket pushes it along instead of 
     CHECK((lower.velocity() - flight.rocket.velocity()).dot(up) < 1.0);
 }
 
+
+TEST_CASE("The default rocket lifts off, then stages down to the pod alone under its parachute")
+{
+    CircularSolarSystem system;
+    const BodyId earth = system.findBody("Earth");
+    const Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+    Rocket rocket;
+    rocket.setVehicle(vehicle);
+    rocket.place(earth, { system.body(earth).radius + vehicle.groundClearance, 0.0, 0.0 }, {});
+    rocket.fireNextStage();
+    for (int i = 0; i < 50 * 10; i++)
+    {
+        rocket.step(1.0 / 50.0, system, i / 50.0);
+    }
+    CHECK(rocket.altitude(system) > 20.0);
+    CHECK(rocket.toWorld({ 0.0, 1.0, 0.0 }).dot(rocket.position().normalized()) == doctest::Approx(1.0));
+
+    // Each later stage drops what's under it: three spent stages and the lander, then the parachute pops the cone
+    int dropped = 0;
+    for (int stage = 1; stage < vehicle.design.stageCount(); stage++)
+    {
+        rocket.fireNextStage();
+        dropped += (int)rocket.takeDropped().size();
+    }
+    CHECK(dropped == 5);
+    REQUIRE(rocket.vehicle().design.partCount() == 1);
+    CHECK(rocket.vehicle().design.part(0).pDefinition->id == "pod");
+    CHECK(rocket.vehicle().deployed[0]);
+}

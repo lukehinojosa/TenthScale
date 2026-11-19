@@ -176,6 +176,7 @@ namespace tenth
         vehicle.design = design;
         vehicle.lit.assign(design.partCount(), false);
         vehicle.deployed.assign(design.partCount(), false);
+        vehicle.canopy.assign(design.partCount(), 0.0);
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
             vehicle.fuel.push_back(design.part(i).pDefinition->fuelMass);
@@ -201,12 +202,14 @@ namespace tenth
         kept.fuel.clear();
         kept.lit.clear();
         kept.deployed.clear();
+        kept.canopy.clear();
         for (PartIndex i = 0; i < count; i++)
         {
             Vehicle& side = inBranch[i] ? branch : kept;
             side.fuel.push_back(vehicle.fuel[i]);
             side.lit.push_back(vehicle.lit[i]);
             side.deployed.push_back(vehicle.deployed[i]);
+            side.canopy.push_back(vehicle.canopy[i]);
         }
         rootOffset = vehicle.design.part(index).position;
         branch.design = kept.design.extract(index);

@@ -27,7 +27,8 @@ namespace tenth
         RocketDesign design; // kept whole, so stages can drop parts in flight
         std::vector<double> fuel; // kg left in each part
         std::vector<bool> lit; // engines the staging key has lit
-        std::vector<bool> deployed; // parachutes the staging key has opened
+        std::vector<bool> deployed; // parachutes the staging key has released
+        std::vector<double> canopy; // how far each released parachute has filled, 0 to 1
         std::vector<PartIndex> sections; // the part starting each part's section, whose tanks its engines draw from
         double throttle = 1.0; // 0 to 1, shared by every lit engine
         int nextStage = 0; // the stage the next press of the staging key fires

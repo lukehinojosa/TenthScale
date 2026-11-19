@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "flight/Aerodynamics.h"
 #include "shared/SolarSystem.h"
 
 namespace tenth
@@ -17,5 +18,11 @@ namespace tenth
         }
         const double scaleHeight = body.atmosphereHeight / 12.0; // roughly Earth's ratio of the two
         return std::exp(-std::max(0.0, altitude) / scaleHeight);
+    }
+
+    // Thins out with height the same way the pressure does
+    inline double airDensity(const BodyInfo& body, double altitude)
+    {
+        return SEA_LEVEL_DENSITY * pressureRatio(body, altitude);
     }
 }

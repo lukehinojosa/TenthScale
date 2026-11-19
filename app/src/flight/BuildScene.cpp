@@ -88,8 +88,9 @@ namespace tenth
             ImGui::EndTooltip();
         }
 
-        // The inside of the assembly building: floor, walls with beams and floor ledges, ceiling, and the big door
-        void drawHall()
+        // The inside of the assembly building: floor, walls with beams and floor ledges, ceiling, and the big door.
+        // A wall the camera has backed out through is left out, along with what hangs on it, so the view stays open.
+        void drawHall(Vector3 camera)
         {
             const float w = HALL_HALF_WIDTH * 2.0f;
             const float h = HALL_HEIGHT;
@@ -98,36 +99,61 @@ namespace tenth
             rlTranslatef(0.0f, 0.01f, 0.0f);
             DrawGrid(25, 2.0f);
             rlPopMatrix();
-
-            DrawCube({ 0.0f, h * 0.5f, -HALL_HALF_WIDTH - 0.5f }, w, h, 1.0f, WALL_COLOR);
-            DrawCube({ 0.0f, h * 0.5f, HALL_HALF_WIDTH + 0.5f }, w, h, 1.0f, WALL_COLOR);
-            DrawCube({ -HALL_HALF_WIDTH - 0.5f, h * 0.5f, 0.0f }, 1.0f, h, w, SIDE_WALL_COLOR);
-            DrawCube({ HALL_HALF_WIDTH + 0.5f, h * 0.5f, 0.0f }, 1.0f, h, w, SIDE_WALL_COLOR);
-            DrawCube({ 0.0f, h + 0.5f, 0.0f }, w, 1.0f, w, CEILING_COLOR);
-
-            // Beams up every wall and ledges at each work level give the room a sense of size
-            for (float along = -HALL_HALF_WIDTH; along <= HALL_HALF_WIDTH; along += 10.0f)
+            if (camera.y < h)
             {
-                DrawCube({ along, h * 0.5f, -HALL_HALF_WIDTH + 0.4f }, 0.8f, h, 0.8f, BEAM_COLOR);
-                DrawCube({ along, h * 0.5f, HALL_HALF_WIDTH - 0.4f }, 0.8f, h, 0.8f, BEAM_COLOR);
-                DrawCube({ -HALL_HALF_WIDTH + 0.4f, h * 0.5f, along }, 0.8f, h, 0.8f, BEAM_COLOR);
-                DrawCube({ HALL_HALF_WIDTH - 0.4f, h * 0.5f, along }, 0.8f, h, 0.8f, BEAM_COLOR);
-            }
-            for (float level = 12.0f; level < h; level += 12.0f)
-            {
-                DrawCube({ 0.0f, level, -HALL_HALF_WIDTH + 1.0f }, w, 0.4f, 2.0f, BEAM_COLOR);
-                DrawCube({ 0.0f, level, HALL_HALF_WIDTH - 1.0f }, w, 0.4f, 2.0f, BEAM_COLOR);
-                DrawCube({ -HALL_HALF_WIDTH + 1.0f, level, 0.0f }, 2.0f, 0.4f, w, BEAM_COLOR);
-                DrawCube({ HALL_HALF_WIDTH - 1.0f, level, 0.0f }, 2.0f, 0.4f, w, BEAM_COLOR);
+                DrawCube({ 0.0f, h + 0.5f, 0.0f }, w, 1.0f, w, CEILING_COLOR);
             }
 
-            // The rollout door on the far wall, edged in hazard stripes
-            const float doorWidth = 18.0f;
-            const float doorHeight = 42.0f;
-            DrawCube({ 0.0f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.05f }, doorWidth, doorHeight, 0.1f, DOOR_COLOR);
-            DrawCube({ -doorWidth * 0.5f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.1f }, 0.5f, doorHeight, 0.1f, HAZARD_COLOR);
-            DrawCube({ doorWidth * 0.5f, doorHeight * 0.5f, -HALL_HALF_WIDTH + 0.1f }, 0.5f, doorHeight, 0.1f, HAZARD_COLOR);
-            DrawCube({ 0.0f, doorHeight, -HALL_HALF_WIDTH + 0.1f }, doorWidth + 0.5f, 0.5f, 0.1f, HAZARD_COLOR);
+            // Each wall faces in along x or z from one side; outward is which way is out of the room
+            struct Wall
+            {
+                Vector3 outward;
+                Color color;
+            };
+            const Wall walls[] = { { { 0.0f, 0.0f, -1.0f }, WALL_COLOR },
+                                   { { 0.0f, 0.0f, 1.0f }, WALL_COLOR },
+                                   { { -1.0f, 0.0f, 0.0f }, SIDE_WALL_COLOR },
+                                   { { 1.0f, 0.0f, 0.0f }, SIDE_WALL_COLOR } };
+            for (const Wall& wall : walls)
+            {
+                const float out = camera.x * wall.outward.x + camera.z * wall.outward.z;
+                if (out > HALL_HALF_WIDTH)
+                {
+                    continue;
+                }
+
+                // Places a box against this wall: inset is how far into the room its centre sits, along runs the length
+                const bool alongX = wall.outward.x == 0.0f;
+                auto onWall = [&](float inset, float along, float height, Vector3 size, Color color)
+                {
+                    const float edge = HALL_HALF_WIDTH - inset;
+                    const Vector3 centre = alongX ? Vector3{ along, height, wall.outward.z * edge } : Vector3{ wall.outward.x * edge, height, along };
+                    const Vector3 turned = alongX ? size : Vector3{ size.z, size.y, size.x };
+                    DrawCube(centre, turned.x, turned.y, turned.z, color);
+                };
+                onWall(-0.5f, 0.0f, h * 0.5f, { w, h, 1.0f }, wall.color);
+
+                // Beams up the wall and ledges at each work level give the room a sense of size
+                for (float along = -HALL_HALF_WIDTH; along <= HALL_HALF_WIDTH; along += 10.0f)
+                {
+                    onWall(0.4f, along, h * 0.5f, { 0.8f, h, 0.8f }, BEAM_COLOR);
+                }
+                for (float level = 12.0f; level < h; level += 12.0f)
+                {
+                    onWall(1.0f, 0.0f, level, { w, 0.4f, 2.0f }, BEAM_COLOR);
+                }
+
+                // The rollout door on the far wall, edged in hazard stripes
+                if (wall.outward.z < 0.0f)
+                {
+                    const float doorWidth = 18.0f;
+                    const float doorHeight = 42.0f;
+                    onWall(0.05f, 0.0f, doorHeight * 0.5f, { doorWidth, doorHeight, 0.1f }, DOOR_COLOR);
+                    onWall(0.1f, -doorWidth * 0.5f, doorHeight * 0.5f, { 0.5f, doorHeight, 0.1f }, HAZARD_COLOR);
+                    onWall(0.1f, doorWidth * 0.5f, doorHeight * 0.5f, { 0.5f, doorHeight, 0.1f }, HAZARD_COLOR);
+                    onWall(0.1f, 0.0f, doorHeight, { doorWidth + 0.5f, 0.5f, 0.1f }, HAZARD_COLOR);
+                }
+            }
         }
 
         // Where a stack node sits in the world, given the part's centre
@@ -145,7 +171,7 @@ namespace tenth
         mOrbit.rightInset = RIGHT_PANEL_WIDTH;
         mOrbit.focus = { 0.0f, BUILD_HEIGHT, 0.0f };
         mOrbit.distance = 16.0f;
-        mOrbit.maxDistance = HALL_HALF_WIDTH - 3.0f;
+        mOrbit.maxDistance = HALL_HALF_WIDTH * 2.0f - 4.0f; // backing out past a wall cuts it away
         mOrbit.minPitch = -1.2f;
         mOrbit.minCameraHeight = 0.5f;
         mOrbit.maxCameraHeight = HALL_HEIGHT - 1.0f;
@@ -502,7 +528,7 @@ namespace tenth
 
     void BuildScene::onDraw3D()
     {
-        drawHall();
+        drawHall(mCamera.position);
 
         const Vector3 offset = designOffset();
         for (PartIndex i = 0; i < mDesign.partCount(); i++)

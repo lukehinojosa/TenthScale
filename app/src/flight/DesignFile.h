@@ -15,7 +15,8 @@ namespace tenth
     // Nothing if the text isn't a design, or names a part the catalog doesn't have
     std::optional<RocketDesign> readDesign(const std::string& text, const PartCatalog& catalog);
 
-    // Nose cone, pod, tank, and a vacuum engine on four legs, over a decoupler, two tanks, and a finned lifter
+    // Built like Saturn V carrying Apollo: a heavy finned first stage, a second stage to orbit, a third toward the
+    // Moon, a lander on legs that also flies home, and the pod on top with a decoupler under it
     RocketDesign defaultRocket(const PartCatalog& catalog);
 
     // Saved rockets live in a rockets folder next to the game; in the browser they're kept in its storage

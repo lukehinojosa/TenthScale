@@ -12,6 +12,8 @@
 #include <raymath.h>
 #include <rlgl.h>
 
+#include "flight/Aerodynamics.h"
+#include "flight/Atmosphere.h"
 #include "flight/PartDrawing.h"
 #include "flight/StageSymbol.h"
 
@@ -35,8 +37,10 @@ namespace tenth
         constexpr float FLAME_LENGTH = 6.0f; // metres at full throttle in vacuum, per metre of nozzle width
         constexpr Color CANOPY_COLOR = { 240, 120, 40, 255 };
         constexpr Color CANOPY_STRIPE_COLOR = { 245, 245, 240, 255 };
-        constexpr float CANOPY_DIAMETER = 6.0f;
-        constexpr float CANOPY_RISE = 7.0f; // how far above the pod the canopy flies
+        constexpr Color DAY_ZENITH = { 70, 130, 215, 255 };
+        constexpr Color DAY_HORIZON = { 190, 215, 240, 255 };
+        constexpr Color SPACE_COLOR = { 4, 6, 14, 255 };
+        constexpr Color SPACE_HORIZON_COLOR = { 30, 50, 90, 255 };
         constexpr Color FLASH_COLOR = { 255, 240, 190, 255 };
         constexpr Color SPARK_COLOR = { 255, 190, 80, 255 };
         constexpr Color SMOKE_COLOR = { 200, 200, 205, 255 };
@@ -489,6 +493,11 @@ namespace tenth
     {
         if (mSkyReady)
         {
+            // The blue thins to black as the air does, a little slower so the horizon keeps a glow near the top
+            const BodyInfo& body = mSolarSystem.body(mRocket.reference());
+            const float air = (float)std::pow(pressureRatio(body, mRocket.altitude(mSolarSystem)), 0.35);
+            mSky.dayZenith = ColorLerp(SPACE_COLOR, DAY_ZENITH, air);
+            mSky.dayHorizon = ColorLerp(SPACE_HORIZON_COLOR, DAY_HORIZON, air);
             mSky.draw(SUN_DIRECTION);
         }
         if (mGraphicsReady)
@@ -566,21 +575,34 @@ namespace tenth
         const Vehicle& vehicle = rocket.vehicle();
         for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
         {
-            if (!vehicle.deployed[i])
+            if (vehicle.canopy[i] <= 0.0)
             {
                 continue;
             }
+
+            // It streams out behind sideways motion but never hangs below the pod: while still climbing it stands
+            // straight up. It billows as it fills, its width growing with the square root of the share of its area.
             const PlacedPart& placed = vehicle.design.part(i);
-            const Vector3 top = toRaylib(placed.position - vehicle.centerOfMass + Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 });
-            const Vector3 rim = { top.x, top.y + CANOPY_RISE, top.z };
-            const float radius = CANOPY_DIAMETER * 0.5f;
-            DrawCylinderEx(rim, { rim.x, rim.y + radius * 0.35f, rim.z }, radius, radius * 0.75f, 16, CANOPY_COLOR);
-            DrawCylinderEx({ rim.x, rim.y + radius * 0.35f, rim.z }, { rim.x, rim.y + radius * 0.6f, rim.z }, radius * 0.75f, radius * 0.2f, 16,
+            const Vec3d anchor = placed.position - vehicle.centerOfMass + Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 };
+            const Vec3d up = rocket.position().normalized();
+            const double speed = rocket.velocity().length();
+            Vec3d trailing = speed > 0.0 ? rocket.velocity() * (-1.0 / std::max(speed, 5.0)) : Vec3d{};
+            trailing -= up * std::min(0.0, trailing.dot(up));
+            const Vec3d out = rocket.toLocal((trailing + up * 0.5).normalized());
+            const Vec3d helper = std::abs(out.x) < 0.9 ? Vec3d{ 1.0, 0.0, 0.0 } : Vec3d{ 0.0, 0.0, 1.0 };
+            const Vec3d side = out.cross(helper).normalized();
+            const Vec3d other = out.cross(side);
+            const double radius = PARACHUTE_DIAMETER * 0.5 * std::sqrt(vehicle.canopy[i]);
+            const Vec3d rim = anchor + out * PARACHUTE_RISE;
+            const Vec3d crown = rim + out * (radius * 0.35);
+            DrawCylinderEx(toRaylib(rim), toRaylib(crown), (float)radius, (float)(radius * 0.75), 16, CANOPY_COLOR);
+            DrawCylinderEx(toRaylib(crown), toRaylib(crown + out * (radius * 0.25)), (float)(radius * 0.75), (float)(radius * 0.2), 16,
                            CANOPY_STRIPE_COLOR);
             for (int line = 0; line < 8; line++)
             {
-                const float angle = 2.0f * PI * line / 8.0f;
-                DrawLine3D(top, { rim.x + radius * std::cos(angle), rim.y, rim.z + radius * std::sin(angle) }, CANOPY_STRIPE_COLOR);
+                const double angle = 2.0 * std::numbers::pi * line / 8.0;
+                const Vec3d edge = rim + (side * std::cos(angle) + other * std::sin(angle)) * radius;
+                DrawLine3D(toRaylib(anchor), toRaylib(edge), CANOPY_STRIPE_COLOR);
             }
         }
     }

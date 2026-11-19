@@ -58,6 +58,9 @@ namespace tenth
         double thrust() const { return mThrust; }
         double pressure() const { return mPressure; }
 
+        // The air's total push on the rocket in the last step, in newtons
+        double drag() const { return mDrag; }
+
         // Whether any of it touched the reference body's surface in the last step
         bool onGround() const { return mOnGround; }
 
@@ -73,8 +76,9 @@ namespace tenth
         // How high its lowest point is above the reference body's surface, however it's lying
         double altitude(const SolarSystem& system) const;
 
-        // Turns a direction in the rocket's own axes into the reference body's axes
+        // Turns a direction in the rocket's own axes into the reference body's axes, and back
         Vec3d toWorld(const Vec3d& direction) const;
+        Vec3d toLocal(const Vec3d& direction) const;
 
         // How fast it turns, in radians per second about each of the reference body's axes
         Vec3d spin() const;
@@ -93,6 +97,10 @@ namespace tenth
     private:
         void updateReference(const SolarSystem& system, double time);
         void pushWithEngines();
+
+        // Every part, and any open parachute, feels the air from where it is, so fins low down steady the rocket.
+        // Released parachutes fill a little more each step while there's air, and fold up again on the ground.
+        void pushWithAir(double density, double dt);
 
         // Lets the part and everything attached through it go as a rocket of its own, with its engines shut off.
         // A push from site, in the design's axes, kicks the two apart at this speed; size is how big it looks.
@@ -122,6 +130,7 @@ namespace tenth
         bool mOnGround = false;
         double mThrust = 0.0;
         double mPressure = 0.0;
+        double mDrag = 0.0;
         double mClimbRate = 0.0; // last step's, for spotting the top of the climb
         std::vector<Rocket> mDropped;
         std::vector<Separation> mSeparations;

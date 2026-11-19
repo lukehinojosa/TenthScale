@@ -114,6 +114,10 @@ namespace tenth
         lifter.description = "Strong at sea level. Gets a rocket off the pad.";
         catalog.add(lifter);
 
+        PartDefinition heavy = engine("engine-heavy", "Heavy Lifter Engine", 2.0, 2000.0, 460000.0, 300.0, 265.0);
+        heavy.description = "Huge thrust for the first stage of a big rocket. Thirsty, and too heavy to carry any higher.";
+        catalog.add(heavy);
+
         PartDefinition vacuum = engine("engine-vacuum", "Vacuum Engine", 1.2, 500.0, 60000.0, 345.0, 85.0);
         vacuum.description = "Weak in thick air but efficient in space. For upper stages.";
         catalog.add(vacuum);
@@ -135,6 +139,10 @@ namespace tenth
         PartDefinition fin = boxPart("fin", "Fin", PartCategory::Aero, 0.8, 0.5, 0.05, 50.0);
         fin.description = "Keeps the rocket pointing forward in the air. Mount low and in symmetry.";
         catalog.add(fin);
+
+        PartDefinition largeFin = boxPart("fin-large", "Large Fin", PartCategory::Aero, 2.0, 1.2, 0.1, 200.0);
+        largeFin.description = "Steadies a long, heavy stack. Mount low and in symmetry.";
+        catalog.add(largeFin);
 
         PartDefinition leg = boxPart("landing-leg", "Landing Leg", PartCategory::Utility, 1.2, 0.4, 0.15, 60.0);
         leg.description = "Takes the impact of a landing. Mount at least three in symmetry.";

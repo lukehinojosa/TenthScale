@@ -31,32 +31,43 @@ namespace
     }
 }
 
-TEST_CASE("The default rocket is a lander on top of a finned booster")
+TEST_CASE("The default rocket is built like Saturn V carrying Apollo")
 {
     const RocketDesign design = defaultRocket(catalog());
     CHECK(design.part(0).pDefinition->id == "pod");
     CHECK(countOf(design, "nose-cone") == 1);
-    CHECK(countOf(design, "tank-large") == 3);
-    CHECK(computeStats(design, 9.82).liftoffTwr > 1.0);
-    CHECK(countOf(design, "engine-vacuum") == 1);
+    CHECK(countOf(design, "engine-heavy") == 1);
     CHECK(countOf(design, "engine-lifter") == 1);
+    CHECK(countOf(design, "engine-vacuum") == 2);
+    CHECK(countOf(design, "decoupler") == 4);
     CHECK(countOf(design, "landing-leg") == 4);
-    CHECK(countOf(design, "fin") == 4);
-    CHECK(countOf(design, "decoupler") == 1);
+    CHECK(countOf(design, "fin-large") == 4);
 
-    // Booster, then decoupler and lander engine, then parachute
-    CHECK(design.stageCount() == 3);
+    // Three stages to the Moon, the lander, then the pod dropping the lander and opening its parachute
+    REQUIRE(design.stageCount() == 6);
+    const std::vector<PartIndex> podRelease = design.partsInStage(4);
+    REQUIRE(podRelease.size() == 1);
+    CHECK(design.part(podRelease.front()).pDefinition->separates);
+    CHECK(design.part(podRelease.front()).parent == 0);
+    const std::vector<PartIndex> parachute = design.partsInStage(5);
+    REQUIRE(parachute.size() == 1);
+    CHECK(design.part(parachute.front()).pDefinition->hasParachute);
+
+    // Enough push to leave the pad briskly, enough speed to reach orbit and head for the Moon, and enough in the
+    // lander to set down, lift off again, and come home
     const DesignStats stats = computeStats(design, 9.82);
-    CHECK(stats.stages[0].deltaVVacuum > 0.0);
-    CHECK(stats.stages[1].deltaVVacuum > 0.0);
+    CHECK(stats.liftoffTwr > 1.2);
+    CHECK(stats.liftoffTwr < 1.6);
+    CHECK(stats.stages[0].deltaVVacuum + stats.stages[1].deltaVVacuum + stats.stages[2].deltaVVacuum > 4000.0);
+    CHECK(stats.stages[3].deltaVVacuum > 1500.0);
     CHECK(stats.stable);
 
-    // The lander's engine sits on the decoupler, so it's shrouded; the booster's isn't
+    // Every engine but the bottom one sits on a decoupler, so only the first stage's bell shows
     for (PartIndex i = 0; i < design.partCount(); i++)
     {
         if (design.part(i).pDefinition->isEngine())
         {
-            CHECK(design.isShrouded(i) == (design.part(i).pDefinition->id == "engine-vacuum"));
+            CHECK(design.isShrouded(i) == (design.part(i).pDefinition->id != "engine-heavy"));
         }
     }
 }

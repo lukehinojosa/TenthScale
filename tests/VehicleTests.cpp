@@ -4,11 +4,12 @@
 #include <cmath>
 #include <numbers>
 
-#include <flight/DesignFile.h>
 #include <flight/PartCatalog.h>
 #include <flight/Rocket.h>
 #include <flight/Vehicle.h>
 #include <solar/CircularSolarSystem.h>
+
+#include "TestRockets.h"
 
 using namespace tenth;
 
@@ -76,9 +77,9 @@ TEST_CASE("A fin's inertia turns with the side it's on")
     CHECK(partInertia(tank.part(diagonal), 100.0).xz != doctest::Approx(0.0));
 }
 
-TEST_CASE("The default rocket keeps its mass, balance, and staging when handed to flight")
+TEST_CASE("The two-stage rocket keeps its mass, balance, and staging when handed to flight")
 {
-    const RocketDesign design = defaultRocket(catalog());
+    const RocketDesign design = twoStageRocket(catalog());
     const Vehicle vehicle = makeVehicle(design);
     CHECK(vehicle.mass == doctest::Approx(design.totalMass()));
     CHECK(vehicle.centerOfMass.y == doctest::Approx(design.centerOfMass().y));
@@ -94,7 +95,7 @@ TEST_CASE("The default rocket keeps its mass, balance, and staging when handed t
 
 TEST_CASE("The outline reaches the rocket's lowest point and its widest fins")
 {
-    const RocketDesign design = defaultRocket(catalog());
+    const RocketDesign design = twoStageRocket(catalog());
     const Vehicle vehicle = makeVehicle(design);
     double lowest = 0.0;
     double widest = 0.0;
@@ -113,7 +114,7 @@ namespace
     {
         CircularSolarSystem system;
         BodyId earth = system.findBody("Earth");
-        Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+        Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
         double standing = system.body(earth).radius + vehicle.groundClearance;
         Rocket rocket;
 

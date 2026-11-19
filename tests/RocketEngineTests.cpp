@@ -4,12 +4,13 @@
 #include <cmath>
 
 #include <flight/Atmosphere.h>
-#include <flight/DesignFile.h>
 #include <flight/DesignStats.h>
 #include <flight/PartCatalog.h>
 #include <flight/Rocket.h>
 #include <flight/Vehicle.h>
 #include <solar/CircularSolarSystem.h>
+
+#include "TestRockets.h"
 
 using namespace tenth;
 
@@ -43,7 +44,7 @@ namespace
 
         LaunchTest()
         {
-            const Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+            const Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
             rocket.setVehicle(vehicle);
             rocket.place(earth, { system.body(earth).radius + vehicle.groundClearance, 0.0, 0.0 }, {});
         }
@@ -88,7 +89,7 @@ TEST_CASE("An engine pushes harder and burns longer in vacuum than at sea level"
 
 TEST_CASE("Staging lights only that stage's engines, and they draw only from their own section's tanks")
 {
-    Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+    Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
     const std::vector<PartIndex> engines = enginesOf(vehicle);
     REQUIRE(engines.size() == 2);
     const PartIndex lifter = vehicle.design.part(engines[0]).stage == 0 ? engines[0] : engines[1];
@@ -128,7 +129,7 @@ TEST_CASE("Staging lights only that stage's engines, and they draw only from the
     CHECK(shares[0] == doctest::Approx(shares[1]));
 }
 
-TEST_CASE("At full throttle the default rocket lifts off and climbs straight up")
+TEST_CASE("At full throttle the two-stage rocket lifts off and climbs straight up")
 {
     LaunchTest launch;
     const double massBefore = launch.rocket.vehicle().mass;
@@ -169,7 +170,7 @@ TEST_CASE("Once its section runs dry an engine stops pushing")
 
 TEST_CASE("Delta-v left shrinks as the burning stage uses its fuel")
 {
-    Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+    Vehicle vehicle = makeVehicle(twoStageRocket(catalog()));
     const double gravity = 9.81;
     const DesignStats full = computeStats(vehicle.design, gravity);
     fireNextStage(vehicle);

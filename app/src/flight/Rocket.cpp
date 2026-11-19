@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "flight/Aerodynamics.h"
 #include "flight/Atmosphere.h"
 #include "flight/SurfaceFrame.h"
 
@@ -256,6 +257,11 @@ namespace tenth
         return fromCyclone(mBody.getDirectionInWorldSpace(toCyclone(direction)));
     }
 
+    Vec3d Rocket::toLocal(const Vec3d& direction) const
+    {
+        return fromCyclone(mBody.getDirectionInLocalSpace(toCyclone(direction)));
+    }
+
     Vec3d Rocket::spin() const
     {
         return fromCyclone(mBody.getAngularVelocity());
@@ -312,8 +318,10 @@ namespace tenth
             gravity = offset.normalized() * (-system.body(mReference).mu / distanceSquared);
         }
         mBody.setAcceleration(toCyclone(gravity));
-        mPressure = pressureRatio(system.body(mReference), offset.length() - system.body(mReference).radius);
+        const double height = offset.length() - system.body(mReference).radius;
+        mPressure = pressureRatio(system.body(mReference), height);
         pushWithEngines();
+        pushWithAir(airDensity(system.body(mReference), height), dt);
         mBody.integrate(dt);
 
         // Burned fuel moves the center of mass, so the body moves with it to keep the parts where they were
@@ -403,6 +411,66 @@ namespace tenth
     }
 
     // Each burning engine pushes up the rocket's axis from where it sits, so lopsided engines would turn it
+    void Rocket::pushWithAir(double density, double dt)
+    {
+        mDrag = 0.0;
+        const RocketDesign& design = mVehicle.design;
+        if (density <= 0.0 || mVehicle.mass <= 0.0)
+        {
+            return;
+        }
+        const Vec3d centre = position();
+        const Vec3d spinNow = spin();
+
+        // A push is capped at what would halve the point's own speed in one step, counting both how it moves the
+        // rocket and how it turns it. A canopy far up on a light pod would otherwise flip it round between steps.
+        const cyclone::Matrix3 inverseInertia = mBody.getInverseInertiaTensorWorld();
+        auto apply = [&](const Vec3d& point, auto&& dragAt)
+        {
+            const Vec3d arm = toWorld(point - mVehicle.centerOfMass);
+            const Vec3d worldVelocity = velocity() + spinNow.cross(arm);
+            const Vec3d localVelocity = fromCyclone(mBody.getDirectionInLocalSpace(toCyclone(worldVelocity)));
+            Vec3d force = toWorld(dragAt(localVelocity));
+            if (force.lengthSquared() == 0.0)
+            {
+                return;
+            }
+            const Vec3d direction = force.normalized();
+            const Vec3d turn = fromCyclone(inverseInertia.transform(toCyclone(arm.cross(direction))));
+            const double give = 1.0 / mVehicle.mass + direction.dot(turn.cross(arm)); // speed change per unit impulse
+            const double limit = 0.5 * worldVelocity.length() / (give * dt);
+            if (force.length() > limit)
+            {
+                force = direction * limit;
+            }
+            mBody.addForceAtPoint(toCyclone(force), toCyclone(centre + arm));
+            mDrag += force.length();
+        };
+
+        for (PartIndex i = 0; i < design.partCount(); i++)
+        {
+            apply(design.part(i).position,
+                  [&](const Vec3d& local)
+                  {
+                      return partDrag(design, i, local, density);
+                  });
+            if (!mVehicle.deployed[i])
+            {
+                continue;
+            }
+            const double change = (mOnGround ? -dt : dt) / PARACHUTE_OPEN_TIME;
+            mVehicle.canopy[i] = std::clamp(mVehicle.canopy[i] + change, 0.0, 1.0);
+            const double opening = mVehicle.canopy[i];
+            // The risers are flexible, so the canopy pulls on the part's top rather than turning it like a lever
+            const PlacedPart& placed = design.part(i);
+            apply(placed.position + Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 },
+                  [&](const Vec3d& local)
+                  {
+                      return parachuteDrag(opening, local, density);
+                  });
+        }
+    }
+
     void Rocket::pushWithEngines()
     {
         mThrust = 0.0;
