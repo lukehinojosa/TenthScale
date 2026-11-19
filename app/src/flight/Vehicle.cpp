@@ -1,6 +1,7 @@
 #include "flight/Vehicle.h"
 
 #include <cmath>
+#include <numbers>
 
 namespace tenth
 {
@@ -45,6 +46,42 @@ namespace tenth
         return inertia;
     }
 
+    std::vector<Vec3d> partOutline(const RocketDesign& design, PartIndex index)
+    {
+        constexpr int RIM_POINTS = 8;
+        const PlacedPart& placed = design.part(index);
+        const PartShape& shape = placed.shape;
+        const double halfHeight = shape.height * 0.5;
+        std::vector<Vec3d> points;
+        if (shape.kind == ShapeKind::Round)
+        {
+            // A shrouded engine is as wide at the bottom as at the top
+            const double bottomRadius = (design.isShrouded(index) ? shape.topDiameter : shape.bottomDiameter) * 0.5;
+            const double topRadius = shape.topDiameter * 0.5;
+            for (int i = 0; i < RIM_POINTS; i++)
+            {
+                const double angle = 2.0 * std::numbers::pi * i / RIM_POINTS;
+                const double c = std::cos(angle);
+                const double s = std::sin(angle);
+                points.push_back(placed.position + Vec3d{ bottomRadius * c, -halfHeight, bottomRadius * s });
+                points.push_back(placed.position + Vec3d{ topRadius * c, halfHeight, topRadius * s });
+            }
+            return points;
+        }
+
+        // A box's corners, turned the same way it's drawn
+        const double c = std::cos(placed.angle);
+        const double s = std::sin(placed.angle);
+        for (int corner = 0; corner < 8; corner++)
+        {
+            const double x = (corner & 1 ? 0.5 : -0.5) * shape.thickness;
+            const double y = (corner & 2 ? 1.0 : -1.0) * halfHeight;
+            const double z = (corner & 4 ? 0.5 : -0.5) * shape.span;
+            points.push_back(placed.position + Vec3d{ x * c + z * s, y, z * c - x * s });
+        }
+        return points;
+    }
+
     Vehicle makeVehicle(const RocketDesign& design)
     {
         Vehicle vehicle;
@@ -71,6 +108,11 @@ namespace tenth
             shifted.xz -= mass * d.x * d.z;
             shifted.yz -= mass * d.y * d.z;
             vehicle.inertia += shifted;
+
+            for (const Vec3d& point : partOutline(design, i))
+            {
+                vehicle.outline.push_back(point - vehicle.centerOfMass);
+            }
         }
         return vehicle;
     }

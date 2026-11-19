@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <cmath>
 #include <numbers>
 
 #include <flight/DesignFile.h>
@@ -90,21 +92,99 @@ TEST_CASE("The default rocket keeps its mass, balance, and staging when handed t
     CHECK(vehicle.inertia.xx > vehicle.inertia.yy);
 }
 
-TEST_CASE("A rocket on the pad stands on the ground instead of falling in")
+TEST_CASE("The outline reaches the rocket's lowest point and its widest fins")
 {
-    CircularSolarSystem system;
-    const BodyId earth = system.findBody("Earth");
-    const Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
-    const double standing = system.body(earth).radius + vehicle.groundClearance;
-
-    Rocket rocket;
-    rocket.setVehicle(vehicle);
-    rocket.place(earth, { standing, 0.0, 0.0 }, {});
-    for (int i = 0; i < 100; i++)
+    const RocketDesign design = defaultRocket(catalog());
+    const Vehicle vehicle = makeVehicle(design);
+    double lowest = 0.0;
+    double widest = 0.0;
+    for (const Vec3d& point : vehicle.outline)
     {
-        rocket.step(1.0 / 50.0, system, i / 50.0);
+        lowest = std::min(lowest, point.y);
+        widest = std::max(widest, std::hypot(point.x, point.z));
     }
-    CHECK(rocket.onGround());
-    CHECK(rocket.position().length() == doctest::Approx(standing));
-    CHECK(rocket.velocity().length() == doctest::Approx(0.0));
+    CHECK(lowest == doctest::Approx(-vehicle.groundClearance));
+    CHECK(widest > def("tank-large").shape.topDiameter * 0.5 + 0.2); // the fins stick out past the tanks
+}
+
+namespace
+{
+    struct PadTest
+    {
+        CircularSolarSystem system;
+        BodyId earth = system.findBody("Earth");
+        Vehicle vehicle = makeVehicle(defaultRocket(catalog()));
+        double standing = system.body(earth).radius + vehicle.groundClearance;
+        Rocket rocket;
+
+        PadTest()
+        {
+            rocket.setVehicle(vehicle);
+            rocket.place(earth, { standing, 0.0, 0.0 }, {});
+        }
+
+        void run(double seconds)
+        {
+            const int steps = (int)(seconds * 50.0);
+            for (int i = 0; i < steps; i++)
+            {
+                rocket.step(1.0 / 50.0, system, i / 50.0);
+            }
+        }
+
+        // Radians between the rocket's long axis and straight up
+        double lean() const
+        {
+            const double cosine = rocket.toWorld({ 0.0, 1.0, 0.0 }).dot(rocket.position().normalized());
+            return std::acos(std::clamp(cosine, -1.0, 1.0));
+        }
+    };
+}
+
+TEST_CASE("A rocket is placed standing straight up from the planet")
+{
+    PadTest pad;
+    CHECK(pad.rocket.toWorld({ 0.0, 1.0, 0.0 }).x == doctest::Approx(1.0));
+    CHECK(pad.rocket.toWorld({ 1.0, 0.0, 0.0 }).dot(pad.rocket.toWorld({ 0.0, 0.0, 1.0 })) == doctest::Approx(0.0));
+    CHECK(pad.lean() == doctest::Approx(0.0));
+}
+
+TEST_CASE("A rocket on the pad stands still on the ground instead of falling in or tipping")
+{
+    PadTest pad;
+    pad.run(10.0);
+    CHECK(pad.rocket.onGround());
+    CHECK(std::abs(pad.rocket.position().length() - pad.standing) < 0.02);
+    CHECK(pad.rocket.velocity().length() < 0.05);
+    CHECK(pad.lean() < 0.002);
+    CHECK(std::abs(pad.rocket.altitude(pad.system)) < 0.02);
+}
+
+TEST_CASE("A rocket leaned past its fins falls over onto its side")
+{
+    PadTest pad;
+    pad.rocket.turn({ 0.0, 0.0, 1.0 }, 0.5);
+    pad.run(10.0);
+    CHECK(pad.lean() > 1.2);
+    CHECK(pad.rocket.position().length() < pad.standing - 3.0);
+    CHECK(std::abs(pad.rocket.altitude(pad.system)) < 0.05);
+}
+
+TEST_CASE("A rocket leaned a little rocks back onto its fins")
+{
+    PadTest pad;
+    pad.rocket.turn({ 0.0, 0.0, 1.0 }, 0.03);
+    pad.run(10.0);
+    CHECK(pad.lean() < 0.01);
+}
+
+TEST_CASE("A spinning rocket in space keeps spinning, since nothing pushes on it")
+{
+    PadTest pad;
+    pad.rocket.place(pad.earth, { pad.system.body(pad.earth).radius + 50.0e3, 0.0, 0.0 }, { 0.0, 0.0, -2000.0 });
+    const Vec3d roll = pad.rocket.toWorld({ 0.0, 0.5, 0.0 });
+    pad.rocket.setSpin(roll);
+    pad.run(5.0);
+    CHECK((pad.rocket.spin() - roll).length() < 1e-9);
+    CHECK_FALSE(pad.rocket.onGround());
 }

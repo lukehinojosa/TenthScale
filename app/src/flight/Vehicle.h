@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "flight/RocketDesign.h"
 #include "shared/Vec3d.h"
 
@@ -27,11 +29,15 @@ namespace tenth
         Vec3d centerOfMass; // from the root part's centre
         Inertia inertia; // about the center of mass
         double groundClearance = 0.0; // how far the center of mass sits above the rocket's lowest point
+        std::vector<Vec3d> outline; // points around each part's edges, from the center of mass, for touching the ground
         int nextStage = 0; // the stage the next press of the staging key fires
     };
 
     // Each part counts as a solid block of its shape: a cylinder its average width for round parts
     Inertia partInertia(const PlacedPart& placed);
+
+    // Points on the part's rims or corners, in the design's axes: enough for it to rest and pivot on the ground
+    std::vector<Vec3d> partOutline(const RocketDesign& design, PartIndex index);
 
     Vehicle makeVehicle(const RocketDesign& design);
 }

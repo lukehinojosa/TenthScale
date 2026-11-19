@@ -5,6 +5,7 @@
 #include <numbers>
 
 #include <imgui.h>
+#include <raymath.h>
 #include <rlgl.h>
 
 #include "flight/PartDrawing.h"
@@ -31,11 +32,6 @@ namespace tenth
         constexpr int GROUND_SEGMENTS = 96;
         constexpr double GROUND_FIRST_RING = 2.0; // metres
         constexpr double GROUND_RING_GROWTH = 1.35;
-
-        Vector3 operator+(Vector3 a, Vector3 b)
-        {
-            return { a.x + b.x, a.y + b.y, a.z + b.z };
-        }
 
         // A patch of the curved surface around the pad, with rings spaced closer near the middle where the camera is.
         // The whole-planet sphere is too coarse to stand on, so this covers everything in sight from the ground.
@@ -161,7 +157,7 @@ namespace tenth
     {
         const Vehicle& vehicle = mRocket.vehicle();
         const double middle = (vehicle.design.highestPoint() + vehicle.design.lowestPoint()) * 0.5;
-        mOrbit.focus = { 0.0f, (float)(middle - vehicle.centerOfMass.y), 0.0f };
+        mOrbit.focus = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, middle - vehicle.centerOfMass.y, 0.0 })));
         mOrbit.minFocusHeight = mOrbit.focus.y;
         mOrbit.maxFocusHeight = mOrbit.focus.y;
         mOrbit.minCameraHeight = toScene(mPad.origin).y + 0.5f;
@@ -210,16 +206,23 @@ namespace tenth
         DrawCube(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, TOWER_COLOR);
         DrawCubeWires(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, ColorBrightness(TOWER_COLOR, -0.5f));
 
-        // The rocket's center of mass is the scene's origin, and it stands upright until it can turn
+        // The rocket's center of mass is the scene's origin, with the design turned however the rocket is facing
         const Vehicle& vehicle = mRocket.vehicle();
-        drawDesign(vehicle.design, toRaylib(Vec3d{} - vehicle.centerOfMass));
+        const Vector3 x = toRaylib(mPad.rotate(mRocket.toWorld({ 1.0, 0.0, 0.0 })));
+        const Vector3 y = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, 1.0, 0.0 })));
+        const Vector3 z = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, 0.0, 1.0 })));
+        const Matrix facing = { x.x, y.x, z.x, 0.0f, x.y, y.y, z.y, 0.0f, x.z, y.z, z.z, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+        rlPushMatrix();
+        rlMultMatrixf(MatrixToFloat(facing));
+        drawDesign(vehicle.design, toRaylib(-vehicle.centerOfMass));
+        rlPopMatrix();
     }
 
     void FlightScene::onGui()
     {
         const BodyInfo& reference = mSolarSystem.body(mRocket.reference());
         const Vehicle& vehicle = mRocket.vehicle();
-        const double altitude = mRocket.position().length() - reference.radius - vehicle.groundClearance;
+        const double altitude = std::max(0.0, mRocket.altitude(mSolarSystem));
         ImGui::SetNextWindowPos({ 12.0f, 12.0f }, ImGuiCond_Always);
         ImGui::Begin("Flight", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
         if (!mLaunched)
@@ -237,6 +240,8 @@ namespace tenth
         ImGui::Text("Altitude: %.1f km", altitude / 1000.0);
         ImGui::Text("Speed: %.0f m/s", mRocket.velocity().length());
         ImGui::Text("Mission time: %.0f s", mTime);
+        const double lean = std::acos(std::clamp(mRocket.toWorld({ 0.0, 1.0, 0.0 }).dot(mRocket.position().normalized()), -1.0, 1.0));
+        ImGui::Text("Lean: %.1f deg   Spin: %.1f deg/s", lean * RAD2DEG, mRocket.spin().length() * RAD2DEG);
 
         ImGui::SeparatorText("Rocket");
         ImGui::Text("Mass: %.2f t   Height: %.1f m", vehicle.mass / 1000.0, vehicle.design.highestPoint() - vehicle.design.lowestPoint());
