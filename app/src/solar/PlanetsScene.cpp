@@ -3,6 +3,7 @@
 #include <random>
 
 #include <imgui.h>
+#include <raymath.h>
 
 #include <engine/Conversions.h>
 
@@ -42,6 +43,27 @@ namespace tenth
                 return value - ROOM_SIZE / 2;
             }
             return value;
+        }
+
+        // Outlines every triangle with lines, since the web build's graphics have no wireframe mode
+        void drawWires(const Mesh& mesh, const Matrix& transform, Color color)
+        {
+            const int cornerCount = mesh.indices != nullptr ? mesh.triangleCount * 3 : mesh.vertexCount;
+            auto corner = [&](int i)
+            {
+                const int vertex = mesh.indices != nullptr ? mesh.indices[i] : i;
+                const Vector3 local = { mesh.vertices[vertex * 3], mesh.vertices[vertex * 3 + 1], mesh.vertices[vertex * 3 + 2] };
+                return Vector3Transform(local, transform);
+            };
+            for (int i = 0; i + 2 < cornerCount; i += 3)
+            {
+                const Vector3 a = corner(i);
+                const Vector3 b = corner(i + 1);
+                const Vector3 c = corner(i + 2);
+                DrawLine3D(a, b, color);
+                DrawLine3D(b, c, color);
+                DrawLine3D(c, a, color);
+            }
         }
     }
 
@@ -213,7 +235,7 @@ namespace tenth
             model.transform = engine::toRaylib(body.collider.transform);
             const Color fill = isSun ? (touching ? YELLOW : ORANGE) : (touching ? RED : LIME);
             DrawModel(model, { 0.0f, 0.0f, 0.0f }, 1.0f, fill);
-            DrawModelWires(model, { 0.0f, 0.0f, 0.0f }, 1.0f, isSun ? YELLOW : BLACK);
+            drawWires(model.meshes[0], model.transform, isSun ? YELLOW : BLACK);
         }
         DrawGrid(100, 1.0f);
     }
