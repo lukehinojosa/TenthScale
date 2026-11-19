@@ -78,105 +78,122 @@ namespace tenth
         }
     }
 
-    DesignStats computeStats(const RocketDesign& design, double surfaceGravity)
+    namespace
     {
-        DesignStats stats;
-        if (design.empty())
+        // Stages before firstStage have already fired; the one just before it is what's burning now, so it lights
+        // nothing new but still counts
+        DesignStats simulateStages(const RocketDesign& design, double surfaceGravity, std::vector<double> fuel, std::vector<bool> lit,
+                                   int firstStage)
         {
+            DesignStats stats;
+            if (design.empty())
+            {
+                return stats;
+            }
+            stats.centerOfMass = design.centerOfMass();
+            stats.centerOfPressure = centerOfPressure(design);
+            stats.stable = stats.centerOfPressure.y <= stats.centerOfMass.y;
+
+            const std::vector<PartIndex> starts = sectionStarts(design);
+            std::vector<bool> attached(design.partCount(), true);
+            stats.stages.resize(std::max(0, firstStage - 1));
+
+            for (int stageIndex = std::max(0, firstStage - 1); stageIndex < design.stageCount(); stageIndex++)
+            {
+                StageStats stage;
+                const std::vector<PartIndex> fired = stageIndex >= firstStage ? design.partsInStage(stageIndex) : std::vector<PartIndex>{};
+                for (PartIndex i : fired)
+                {
+                    const PartDefinition& definition = *design.part(i).pDefinition;
+                    if (definition.separates && attached[i])
+                    {
+                        if (stage.decoupler == NO_PART)
+                        {
+                            stage.decoupler = i;
+                        }
+                        detach(design, i, attached);
+                    }
+                    if (definition.isEngine())
+                    {
+                        lit[i] = true;
+                        stats.hasEngines = true;
+                    }
+                }
+
+                // Lit engines burn whatever fuel is left in their sections
+                std::vector<PartIndex> burningSections;
+                double flowVacuum = 0.0;
+                double flowSeaLevel = 0.0;
+                for (PartIndex i = 0; i < design.partCount(); i++)
+                {
+                    const PartDefinition& definition = *design.part(i).pDefinition;
+                    if (!lit[i] || !attached[i])
+                    {
+                        continue;
+                    }
+                    bool hasFuel = false;
+                    for (PartIndex j = 0; j < design.partCount(); j++)
+                    {
+                        hasFuel = hasFuel || (attached[j] && starts[j] == starts[i] && fuel[j] > 0.0);
+                    }
+                    if (!hasFuel)
+                    {
+                        continue;
+                    }
+                    const double thrustSeaLevel = definition.thrustVacuum * definition.ispSeaLevel / definition.ispVacuum;
+                    stage.engines.push_back(i);
+                    stage.thrustVacuum += definition.thrustVacuum;
+                    stage.thrustSeaLevel += thrustSeaLevel;
+                    flowVacuum += definition.thrustVacuum / definition.ispVacuum;
+                    flowSeaLevel += thrustSeaLevel / definition.ispSeaLevel;
+                    if (std::find(burningSections.begin(), burningSections.end(), starts[i]) == burningSections.end())
+                    {
+                        burningSections.push_back(starts[i]);
+                    }
+                }
+
+                for (PartIndex i = 0; i < design.partCount(); i++)
+                {
+                    if (!attached[i])
+                    {
+                        continue;
+                    }
+                    stage.startMass += design.part(i).dryMass() + fuel[i];
+                    if (std::find(burningSections.begin(), burningSections.end(), starts[i]) != burningSections.end())
+                    {
+                        stage.fuelMass += fuel[i];
+                        fuel[i] = 0.0;
+                    }
+                }
+                stage.endMass = stage.startMass - stage.fuelMass;
+                stage.ispVacuum = combinedIsp(stage.thrustVacuum, flowVacuum);
+                stage.ispSeaLevel = combinedIsp(stage.thrustSeaLevel, flowSeaLevel);
+                stage.deltaVVacuum = rocketEquation(stage.ispVacuum, stage.startMass, stage.endMass);
+                stage.deltaVSeaLevel = rocketEquation(stage.ispSeaLevel, stage.startMass, stage.endMass);
+                stage.twrSeaLevel = stage.thrustSeaLevel / (stage.startMass * surfaceGravity);
+                if (!stage.engines.empty() && stats.liftoffTwr <= 0.0)
+                {
+                    stats.liftoffTwr = stage.twrSeaLevel;
+                }
+                stats.totalDeltaVVacuum += stage.deltaVVacuum;
+                stats.stages.push_back(stage);
+            }
             return stats;
         }
-        stats.centerOfMass = design.centerOfMass();
-        stats.centerOfPressure = centerOfPressure(design);
-        stats.stable = stats.centerOfPressure.y <= stats.centerOfMass.y;
+    }
 
-        const std::vector<PartIndex> starts = sectionStarts(design);
-        std::vector<bool> attached(design.partCount(), true);
-        std::vector<bool> lit(design.partCount(), false);
-        std::vector<double> fuel(design.partCount(), 0.0);
+    DesignStats computeStats(const RocketDesign& design, double surfaceGravity)
+    {
+        std::vector<double> fuel;
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
-            fuel[i] = design.part(i).pDefinition->fuelMass;
+            fuel.push_back(design.part(i).pDefinition->fuelMass);
         }
+        return simulateStages(design, surfaceGravity, fuel, std::vector<bool>(design.partCount(), false), 0);
+    }
 
-        for (int stageIndex = 0; stageIndex < design.stageCount(); stageIndex++)
-        {
-            StageStats stage;
-            for (PartIndex i : design.partsInStage(stageIndex))
-            {
-                const PartDefinition& definition = *design.part(i).pDefinition;
-                if (definition.separates && attached[i])
-                {
-                    if (stage.decoupler == NO_PART)
-                    {
-                        stage.decoupler = i;
-                    }
-                    detach(design, i, attached);
-                }
-                if (definition.isEngine())
-                {
-                    lit[i] = true;
-                    stats.hasEngines = true;
-                }
-            }
-
-            // Lit engines burn whatever fuel is left in their sections
-            std::vector<PartIndex> burningSections;
-            double flowVacuum = 0.0;
-            double flowSeaLevel = 0.0;
-            for (PartIndex i = 0; i < design.partCount(); i++)
-            {
-                const PartDefinition& definition = *design.part(i).pDefinition;
-                if (!lit[i] || !attached[i])
-                {
-                    continue;
-                }
-                bool hasFuel = false;
-                for (PartIndex j = 0; j < design.partCount(); j++)
-                {
-                    hasFuel = hasFuel || (attached[j] && starts[j] == starts[i] && fuel[j] > 0.0);
-                }
-                if (!hasFuel)
-                {
-                    continue;
-                }
-                const double thrustSeaLevel = definition.thrustVacuum * definition.ispSeaLevel / definition.ispVacuum;
-                stage.engines.push_back(i);
-                stage.thrustVacuum += definition.thrustVacuum;
-                stage.thrustSeaLevel += thrustSeaLevel;
-                flowVacuum += definition.thrustVacuum / definition.ispVacuum;
-                flowSeaLevel += thrustSeaLevel / definition.ispSeaLevel;
-                if (std::find(burningSections.begin(), burningSections.end(), starts[i]) == burningSections.end())
-                {
-                    burningSections.push_back(starts[i]);
-                }
-            }
-
-            for (PartIndex i = 0; i < design.partCount(); i++)
-            {
-                if (!attached[i])
-                {
-                    continue;
-                }
-                stage.startMass += design.part(i).dryMass() + fuel[i];
-                if (std::find(burningSections.begin(), burningSections.end(), starts[i]) != burningSections.end())
-                {
-                    stage.fuelMass += fuel[i];
-                    fuel[i] = 0.0;
-                }
-            }
-            stage.endMass = stage.startMass - stage.fuelMass;
-            stage.ispVacuum = combinedIsp(stage.thrustVacuum, flowVacuum);
-            stage.ispSeaLevel = combinedIsp(stage.thrustSeaLevel, flowSeaLevel);
-            stage.deltaVVacuum = rocketEquation(stage.ispVacuum, stage.startMass, stage.endMass);
-            stage.deltaVSeaLevel = rocketEquation(stage.ispSeaLevel, stage.startMass, stage.endMass);
-            stage.twrSeaLevel = stage.thrustSeaLevel / (stage.startMass * surfaceGravity);
-            if (!stage.engines.empty() && stats.liftoffTwr <= 0.0)
-            {
-                stats.liftoffTwr = stage.twrSeaLevel;
-            }
-            stats.totalDeltaVVacuum += stage.deltaVVacuum;
-            stats.stages.push_back(stage);
-        }
-        return stats;
+    DesignStats computeStats(const Vehicle& vehicle, double surfaceGravity)
+    {
+        return simulateStages(vehicle.design, surfaceGravity, vehicle.fuel, vehicle.lit, vehicle.nextStage);
     }
 }

@@ -29,7 +29,7 @@ if(TARGET net_relay)
 endif()
 
 if(TARGET flight)
-    target_sources(tests PRIVATE SolarSystemTests.cpp FlightTests.cpp RocketDesignTests.cpp DesignStatsTests.cpp DesignFileTests.cpp VehicleTests.cpp)
+    target_sources(tests PRIVATE SolarSystemTests.cpp FlightTests.cpp RocketDesignTests.cpp DesignStatsTests.cpp DesignFileTests.cpp VehicleTests.cpp RocketEngineTests.cpp)
     target_link_libraries(tests PRIVATE solar flight)
 endif()
 

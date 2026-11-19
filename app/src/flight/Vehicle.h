@@ -20,24 +20,56 @@ namespace tenth
         Inertia& operator+=(const Inertia& other);
     };
 
-    // The built rocket as flight sees it: its parts and staging, plus the mass numbers rigid-body physics needs.
-    // Measured in the design's axes, +Y up the rocket, with full tanks.
+    // The built rocket as flight sees it: its parts and staging, the fuel left in each part, and the mass numbers
+    // rigid-body physics needs. Measured in the design's axes, +Y up the rocket.
     struct Vehicle
     {
-        RocketDesign design; // kept whole, so stages can drop parts and fuel can burn down in flight
+        RocketDesign design; // kept whole, so stages can drop parts in flight
+        std::vector<double> fuel; // kg left in each part
+        std::vector<bool> lit; // engines the staging key has lit
+        std::vector<PartIndex> sections; // the part starting each part's section, whose tanks its engines draw from
+        double throttle = 1.0; // 0 to 1, shared by every lit engine
+        int nextStage = 0; // the stage the next press of the staging key fires
+
         double mass = 0.0; // kg
         Vec3d centerOfMass; // from the root part's centre
         Inertia inertia; // about the center of mass
-        double groundClearance = 0.0; // how far the center of mass sits above the rocket's lowest point
-        std::vector<Vec3d> outline; // points around each part's edges, from the center of mass, for touching the ground
-        int nextStage = 0; // the stage the next press of the staging key fires
+        double groundClearance = 0.0; // how far the center of mass sits above the rocket's lowest point, tanks full
+        std::vector<Vec3d> outline; // points around each part's edges, from the root, for touching the ground
+    };
+
+    // One engine's push at the current air pressure, where 1 is sea level and 0 is vacuum
+    struct EngineOutput
+    {
+        double thrust = 0.0; // newtons at full throttle
+        double isp = 0.0; // seconds
     };
 
     // Each part counts as a solid block of its shape: a cylinder its average width for round parts
-    Inertia partInertia(const PlacedPart& placed);
+    Inertia partInertia(const PlacedPart& placed, double mass);
 
     // Points on the part's rims or corners, in the design's axes: enough for it to rest and pivot on the ground
     std::vector<Vec3d> partOutline(const RocketDesign& design, PartIndex index);
 
+    // With every tank full and nothing lit
     Vehicle makeVehicle(const RocketDesign& design);
+
+    // Works out mass, center of mass, and inertia again from the fuel left
+    void updateMass(Vehicle& vehicle);
+
+    // Lights the engines in the next stage and moves on to the one after. Returns the parts it fired.
+    std::vector<PartIndex> fireNextStage(Vehicle& vehicle);
+
+    double sectionFuel(const Vehicle& vehicle, PartIndex section);
+    double sectionCapacity(const Vehicle& vehicle, PartIndex section);
+
+    // Lit and with fuel left in its section
+    bool isBurning(const Vehicle& vehicle, PartIndex engine);
+
+    // Thinner air lets the exhaust expand more, so the same fuel flow pushes harder and lasts longer
+    EngineOutput engineOutput(const PartDefinition& engine, double pressure);
+
+    // Every burning engine draws its fuel flow from the tanks in its section, each emptying at the same pace.
+    // Leaves the mass numbers for updateMass.
+    void burnFuel(Vehicle& vehicle, double pressure, double dt);
 }

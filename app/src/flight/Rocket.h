@@ -8,7 +8,8 @@
 
 namespace tenth
 {
-    // The rocket in flight as one rigid body: it moves, turns, and spins under gravity and rests on the ground.
+    // The rocket in flight as one rigid body: it moves, turns, and spins under gravity and its engines, and rests on
+    // the ground.
     // Position and velocity are kept relative to the body whose gravity it's in, so they stay precise and the rocket
     // moves along with that body. Its own axes are the design's, +Y up the rocket.
     class Rocket
@@ -22,6 +23,17 @@ namespace tenth
         // The built rocket: its parts, staging, mass, and inertia, plus its outline for touching the ground
         void setVehicle(const Vehicle& vehicle);
         const Vehicle& vehicle() const { return mVehicle; }
+
+        // Shared by every lit engine, 0 to 1
+        void setThrottle(double throttle);
+        double throttle() const { return mVehicle.throttle; }
+
+        // Fires the next stage, lighting its engines. Returns the parts it fired.
+        std::vector<PartIndex> fireNextStage();
+
+        // The engines' total push in the last step, in newtons, and the air pressure they pushed against
+        double thrust() const { return mThrust; }
+        double pressure() const { return mPressure; }
 
         // Whether any of it touched the reference body's surface in the last step
         bool onGround() const { return mOnGround; }
@@ -53,6 +65,10 @@ namespace tenth
 
     private:
         void updateReference(const SolarSystem& system, double time);
+        void pushWithEngines();
+
+        // Hands Cyclone the vehicle's mass and inertia; the body's position stays the center of mass as fuel burns
+        void applyMass();
         void touchGround(double dt, const SolarSystem& system);
 
         BodyId mReference = NO_BODY;
@@ -61,5 +77,7 @@ namespace tenth
         std::vector<cyclone::Contact> mContacts;
         Vehicle mVehicle;
         bool mOnGround = false;
+        double mThrust = 0.0;
+        double mPressure = 0.0;
     };
 }

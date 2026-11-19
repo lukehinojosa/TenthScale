@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "flight/Atmosphere.h"
 #include "flight/SurfaceFrame.h"
 
 namespace tenth
@@ -76,17 +77,32 @@ namespace tenth
     void Rocket::setVehicle(const Vehicle& vehicle)
     {
         mVehicle = vehicle;
-        if (vehicle.mass <= 0.0)
+        applyMass();
+    }
+
+    void Rocket::applyMass()
+    {
+        if (mVehicle.mass <= 0.0)
         {
             return;
         }
-        mBody.setMass(vehicle.mass);
+        mBody.setMass(mVehicle.mass);
 
         // Cyclone takes the products of inertia, which are the negatives of the tensor's off-diagonal terms
-        const Inertia& i = vehicle.inertia;
+        const Inertia& i = mVehicle.inertia;
         cyclone::Matrix3 tensor;
         tensor.setInertiaTensorCoeffs(i.xx, i.yy, i.zz, -i.xy, -i.xz, -i.yz);
         mBody.setInertiaTensor(tensor);
+    }
+
+    void Rocket::setThrottle(double throttle)
+    {
+        mVehicle.throttle = std::clamp(throttle, 0.0, 1.0);
+    }
+
+    std::vector<PartIndex> Rocket::fireNextStage()
+    {
+        return tenth::fireNextStage(mVehicle);
     }
 
     Vec3d Rocket::position() const
@@ -102,8 +118,9 @@ namespace tenth
     double Rocket::altitude(const SolarSystem& system) const
     {
         double lowest = position().length();
-        for (const Vec3d& local : mVehicle.outline)
+        for (const Vec3d& point : mVehicle.outline)
         {
+            const Vec3d local = point - mVehicle.centerOfMass;
             lowest = std::min(lowest, fromCyclone(mBody.getPointInWorldSpace(toCyclone(local))).length());
         }
         return lowest - system.body(mReference).radius;
@@ -170,8 +187,35 @@ namespace tenth
             gravity = offset.normalized() * (-system.body(mReference).mu / distanceSquared);
         }
         mBody.setAcceleration(toCyclone(gravity));
+        mPressure = pressureRatio(system.body(mReference), offset.length() - system.body(mReference).radius);
+        pushWithEngines();
         mBody.integrate(dt);
+
+        // Burned fuel moves the center of mass, so the body moves with it to keep the parts where they were
+        const Vec3d oldCenter = mVehicle.centerOfMass;
+        burnFuel(mVehicle, mPressure, dt);
+        updateMass(mVehicle);
+        mBody.setPosition(mBody.getPosition() + toCyclone(toWorld(mVehicle.centerOfMass - oldCenter)));
+        applyMass();
+
         touchGround(dt, system);
+    }
+
+    // Each burning engine pushes up the rocket's axis from where it sits, so lopsided engines would turn it
+    void Rocket::pushWithEngines()
+    {
+        mThrust = 0.0;
+        for (PartIndex engine = 0; engine < mVehicle.design.partCount(); engine++)
+        {
+            if (!isBurning(mVehicle, engine))
+            {
+                continue;
+            }
+            const PlacedPart& placed = mVehicle.design.part(engine);
+            const double thrust = engineOutput(*placed.pDefinition, mPressure).thrust * mVehicle.throttle;
+            mBody.addForceAtBodyPoint(toCyclone(toWorld({ 0.0, thrust, 0.0 })), toCyclone(placed.position - mVehicle.centerOfMass));
+            mThrust += thrust;
+        }
     }
 
     // Every outline point at or under the surface becomes a contact, so the rocket rests on whatever touches and
@@ -180,8 +224,9 @@ namespace tenth
     {
         const double radius = system.body(mReference).radius;
         mContacts.clear();
-        for (const Vec3d& local : mVehicle.outline)
+        for (const Vec3d& part : mVehicle.outline)
         {
+            const Vec3d local = part - mVehicle.centerOfMass;
             const Vec3d point = fromCyclone(mBody.getPointInWorldSpace(toCyclone(local)));
             const double distance = point.length();
             const double depth = radius - distance;

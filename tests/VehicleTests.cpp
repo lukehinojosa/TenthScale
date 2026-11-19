@@ -66,14 +66,14 @@ TEST_CASE("A fin's inertia turns with the side it's on")
     tank.setRoot(def("tank-small"));
     const PartIndex front = tank.attachRadial(0, 0.0, 0.0, def("fin"));
     const PartIndex side = tank.attachRadial(0, std::numbers::pi / 2.0, 0.0, def("fin"));
-    const Inertia facingZ = partInertia(tank.part(front));
-    const Inertia facingX = partInertia(tank.part(side));
+    const Inertia facingZ = partInertia(tank.part(front), 100.0);
+    const Inertia facingX = partInertia(tank.part(side), 100.0);
     CHECK(facingX.xx == doctest::Approx(facingZ.zz));
     CHECK(facingX.zz == doctest::Approx(facingZ.xx));
     CHECK(facingZ.xz == doctest::Approx(0.0));
 
     const PartIndex diagonal = tank.attachRadial(0, std::numbers::pi / 4.0, 0.0, def("fin"));
-    CHECK(partInertia(tank.part(diagonal)).xz != doctest::Approx(0.0));
+    CHECK(partInertia(tank.part(diagonal), 100.0).xz != doctest::Approx(0.0));
 }
 
 TEST_CASE("The default rocket keeps its mass, balance, and staging when handed to flight")
@@ -103,7 +103,7 @@ TEST_CASE("The outline reaches the rocket's lowest point and its widest fins")
         lowest = std::min(lowest, point.y);
         widest = std::max(widest, std::hypot(point.x, point.z));
     }
-    CHECK(lowest == doctest::Approx(-vehicle.groundClearance));
+    CHECK(lowest == doctest::Approx(design.lowestPoint()));
     CHECK(widest > def("tank-large").shape.topDiameter * 0.5 + 0.2); // the fins stick out past the tanks
 }
 

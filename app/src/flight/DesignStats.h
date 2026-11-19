@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "flight/RocketDesign.h"
+#include "flight/Vehicle.h"
 #include "shared/Vec3d.h"
 
 namespace tenth
@@ -53,4 +54,8 @@ namespace tenth
     // Goes through the stages in order. Lit engines keep burning in later stages until their fuel runs out or they're
     // dropped. surfaceGravity sets the weight for the launch pad's TWR.
     DesignStats computeStats(const RocketDesign& design, double surfaceGravity);
+
+    // The same for a rocket in flight, from the fuel it has left and the engines already lit. Stages already fired
+    // are left empty, except the one burning now.
+    DesignStats computeStats(const Vehicle& vehicle, double surfaceGravity);
 }

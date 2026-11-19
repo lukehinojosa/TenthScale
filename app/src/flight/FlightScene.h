@@ -34,11 +34,19 @@ namespace tenth
         Vector3 toScene(const Vec3d& position) const;
 
         void drawGround() const;
+        void drawFlames() const;
+
+        // Fires the next stage, or launches if the rocket is still on the pad
+        void stage();
+
+        void drawStatusBar();
+        void drawGauges();
+        void drawStageStack();
 
         Camera3D& mCamera;
         const RocketDesign& mDesign;
         const SolarSystem& mSolarSystem;
-        DesignStats mStats;
+        DesignStats mStats; // of what's left to burn, worked out each frame
         Rocket mRocket;
         SurfaceFrame mPad;
         OrbitCamera mOrbit;

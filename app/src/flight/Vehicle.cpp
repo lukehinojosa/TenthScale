@@ -1,7 +1,10 @@
 #include "flight/Vehicle.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
+
+#include "flight/DesignStats.h"
 
 namespace tenth
 {
@@ -16,10 +19,9 @@ namespace tenth
         return *this;
     }
 
-    Inertia partInertia(const PlacedPart& placed)
+    Inertia partInertia(const PlacedPart& placed, double mass)
     {
         const PartShape& shape = placed.shape;
-        const double mass = placed.wetMass();
         const double h2 = shape.height * shape.height;
         Inertia inertia;
         if (shape.kind == ShapeKind::Round)
@@ -86,21 +88,43 @@ namespace tenth
     {
         Vehicle vehicle;
         vehicle.design = design;
-        if (design.empty())
+        vehicle.sections = sectionStarts(design);
+        vehicle.lit.assign(design.partCount(), false);
+        for (PartIndex i = 0; i < design.partCount(); i++)
         {
-            return vehicle;
+            vehicle.fuel.push_back(design.part(i).pDefinition->fuelMass);
+            const std::vector<Vec3d> points = partOutline(design, i);
+            vehicle.outline.insert(vehicle.outline.end(), points.begin(), points.end());
         }
-        vehicle.mass = design.totalMass();
-        vehicle.centerOfMass = design.centerOfMass();
-        vehicle.groundClearance = vehicle.centerOfMass.y - design.lowestPoint();
+        updateMass(vehicle);
+        if (!design.empty())
+        {
+            vehicle.groundClearance = vehicle.centerOfMass.y - design.lowestPoint();
+        }
+        return vehicle;
+    }
+
+    void updateMass(Vehicle& vehicle)
+    {
+        const RocketDesign& design = vehicle.design;
+        vehicle.mass = 0.0;
+        vehicle.inertia = {};
+        Vec3d weighted;
+        for (PartIndex i = 0; i < design.partCount(); i++)
+        {
+            const double mass = design.part(i).dryMass() + vehicle.fuel[i];
+            vehicle.mass += mass;
+            weighted += design.part(i).position * mass;
+        }
+        vehicle.centerOfMass = vehicle.mass > 0.0 ? weighted / vehicle.mass : Vec3d{};
 
         // Each part's own inertia, moved out to the center of mass by how far its centre sits from it
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
             const PlacedPart& placed = design.part(i);
-            const double mass = placed.wetMass();
+            const double mass = placed.dryMass() + vehicle.fuel[i];
             const Vec3d d = placed.position - vehicle.centerOfMass;
-            Inertia shifted = partInertia(placed);
+            Inertia shifted = partInertia(placed, mass);
             shifted.xx += mass * (d.y * d.y + d.z * d.z);
             shifted.yy += mass * (d.x * d.x + d.z * d.z);
             shifted.zz += mass * (d.x * d.x + d.y * d.y);
@@ -108,12 +132,94 @@ namespace tenth
             shifted.xz -= mass * d.x * d.z;
             shifted.yz -= mass * d.y * d.z;
             vehicle.inertia += shifted;
+        }
+    }
 
-            for (const Vec3d& point : partOutline(design, i))
+    std::vector<PartIndex> fireNextStage(Vehicle& vehicle)
+    {
+        if (vehicle.nextStage >= vehicle.design.stageCount())
+        {
+            return {};
+        }
+        const std::vector<PartIndex> fired = vehicle.design.partsInStage(vehicle.nextStage);
+        for (PartIndex i : fired)
+        {
+            if (vehicle.design.part(i).pDefinition->isEngine())
             {
-                vehicle.outline.push_back(point - vehicle.centerOfMass);
+                vehicle.lit[i] = true;
             }
         }
-        return vehicle;
+        vehicle.nextStage++;
+        return fired;
+    }
+
+    double sectionFuel(const Vehicle& vehicle, PartIndex section)
+    {
+        double total = 0.0;
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            if (vehicle.sections[i] == section)
+            {
+                total += vehicle.fuel[i];
+            }
+        }
+        return total;
+    }
+
+    double sectionCapacity(const Vehicle& vehicle, PartIndex section)
+    {
+        double total = 0.0;
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            if (vehicle.sections[i] == section)
+            {
+                total += vehicle.design.part(i).pDefinition->fuelMass;
+            }
+        }
+        return total;
+    }
+
+    bool isBurning(const Vehicle& vehicle, PartIndex engine)
+    {
+        return vehicle.lit[engine] && sectionFuel(vehicle, vehicle.sections[engine]) > 0.0;
+    }
+
+    EngineOutput engineOutput(const PartDefinition& engine, double pressure)
+    {
+        EngineOutput output;
+        if (!engine.isEngine())
+        {
+            return output;
+        }
+        const double share = std::clamp(pressure, 0.0, 1.0);
+        output.isp = engine.ispVacuum + (engine.ispSeaLevel - engine.ispVacuum) * share;
+        output.thrust = engine.thrustVacuum * output.isp / engine.ispVacuum;
+        return output;
+    }
+
+    void burnFuel(Vehicle& vehicle, double pressure, double dt)
+    {
+        const RocketDesign& design = vehicle.design;
+        for (PartIndex engine = 0; engine < design.partCount(); engine++)
+        {
+            if (!isBurning(vehicle, engine))
+            {
+                continue;
+            }
+            const EngineOutput output = engineOutput(*design.part(engine).pDefinition, pressure);
+            const PartIndex section = vehicle.sections[engine];
+            const double available = sectionFuel(vehicle, section);
+            const double burned = std::min(available, output.thrust * vehicle.throttle / (output.isp * STANDARD_GRAVITY) * dt);
+
+            // Taking the same share from each tank empties them all together
+            const double share = burned / available;
+            for (PartIndex i = 0; i < design.partCount(); i++)
+            {
+                if (vehicle.sections[i] == section)
+                {
+                    vehicle.fuel[i] = std::max(0.0, vehicle.fuel[i] * (1.0 - share));
+                }
+            }
+        }
     }
 }

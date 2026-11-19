@@ -10,6 +10,7 @@
 
 #include "flight/DesignFile.h"
 #include "flight/PartDrawing.h"
+#include "flight/StageSymbol.h"
 
 namespace tenth
 {
@@ -85,33 +86,6 @@ namespace tenth
             }
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
-        }
-
-        // A white symbol for what the part does: an engine bell, a decoupler's split, or a parachute canopy
-        void drawStageSymbol(ImDrawList* pList, ImVec2 min, float size, const PartDefinition& definition)
-        {
-            auto at = [min, size](float x, float y)
-            {
-                return ImVec2(min.x + x * size, min.y + y * size);
-            };
-            if (definition.isEngine())
-            {
-                pList->AddRectFilled(at(0.38f, 0.14f), at(0.62f, 0.34f), ICON_SYMBOL);
-                pList->AddQuadFilled(at(0.40f, 0.34f), at(0.60f, 0.34f), at(0.78f, 0.84f), at(0.22f, 0.84f), ICON_SYMBOL);
-            }
-            else if (definition.separates)
-            {
-                pList->AddRectFilled(at(0.16f, 0.28f), at(0.84f, 0.42f), ICON_SYMBOL);
-                pList->AddRectFilled(at(0.16f, 0.58f), at(0.84f, 0.72f), ICON_SYMBOL);
-            }
-            else if (definition.hasParachute)
-            {
-                pList->PathArcTo(at(0.5f, 0.5f), size * 0.32f, PI, 2.0f * PI, 16);
-                pList->PathFillConvex(ICON_SYMBOL);
-                pList->AddLine(at(0.18f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
-                pList->AddLine(at(0.82f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
-                pList->AddLine(at(0.5f, 0.5f), at(0.5f, 0.86f), ICON_SYMBOL, 1.5f);
-            }
         }
 
         // The inside of the assembly building: floor, walls with beams and floor ledges, ceiling, and the big door
@@ -1073,7 +1047,7 @@ namespace tenth
         {
             pList->AddRect(min, max, ICON_HIGHLIGHT, 6.0f, 0, 2.5f);
         }
-        drawStageSymbol(pList, min, ICON_SIZE, definition);
+        drawStageSymbol(pList, min, ICON_SIZE, definition, ICON_SYMBOL);
         if (parts.size() > 1)
         {
             char count[8];
