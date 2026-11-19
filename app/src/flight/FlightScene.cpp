@@ -58,11 +58,26 @@ namespace tenth
         constexpr ImU32 HUD_TEXT = IM_COL32(232, 236, 240, 255);
         constexpr ImU32 HUD_MUTED = IM_COL32(140, 152, 164, 255);
         constexpr ImU32 HUD_GREEN = IM_COL32(60, 220, 100, 255);
-        constexpr ImU32 HUD_DARK_GREEN = IM_COL32(20, 70, 36, 255);
         constexpr ImU32 HUD_YELLOW = IM_COL32(240, 200, 60, 255);
         constexpr ImU32 HUD_PINK = IM_COL32(230, 90, 200, 255);
         constexpr ImU32 HUD_CYAN = IM_COL32(80, 200, 230, 255);
-        constexpr ImU32 HUD_ON_GREEN = IM_COL32(10, 16, 12, 255);
+        constexpr ImU32 HUD_BLUE = IM_COL32(90, 150, 255, 255);
+        constexpr ImU32 HUD_ORANGE = IM_COL32(255, 150, 40, 255);
+        constexpr ImU32 HUD_RED = IM_COL32(240, 90, 80, 255);
+        constexpr ImU32 HUD_GO = IM_COL32(60, 210, 100, 255);
+        constexpr ImU32 HUD_GO_EDGE = IM_COL32(150, 255, 170, 255);
+        constexpr ImU32 HUD_GO_INK = IM_COL32(10, 70, 30, 255);
+        constexpr ImU32 HUD_BOX = IM_COL32(8, 12, 18, 245);
+        constexpr float NAVBALL_BEZEL = 106.0f; // the dark ring round the ball that carries the heading tape
+        constexpr float ARC_RADIUS = 150.0f; // the throttle and climb rate arcs either side of the ball
+        constexpr float ARC_WIDTH = 14.0f;
+        constexpr ImVec2 ORBIT_STRIP_SIZE = { 340.0f, 50.0f };
+        constexpr double G_FORCE_SMOOTHING = 4.0; // per second: how quickly the gauge follows the felt push
+        constexpr ImVec4 NAVBALL_SKY = { 70.0f, 140.0f, 225.0f, 255.0f };
+        constexpr ImVec4 NAVBALL_GROUND = { 165.0f, 105.0f, 55.0f, 255.0f };
+        constexpr float NAVBALL_RADIUS = 78.0f;
+        constexpr int NAVBALL_RINGS = 24;
+        constexpr int NAVBALL_SEGMENTS = 72;
         constexpr ImGuiWindowFlags OVERLAY_FLAGS = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground |
                                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
                                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
@@ -155,16 +170,16 @@ namespace tenth
             text(pList, { x - width, y }, size, color, value);
         }
 
-        // A labelled number in a dark box with a coloured edge, like the speed and altitude readouts
-        void readout(ImDrawList* pList, ImVec2 min, ImVec2 size, ImU32 accent, const char* label, const char* value, const char* unit)
+        // A labelled number boxed at the side of the instruments, like the speed and altitude
+        void sideBox(ImDrawList* pList, ImVec2 centre, ImU32 accent, const char* label, const char* value, const char* unit)
         {
-            const ImVec2 max = offset(min, size.x, size.y);
-            pList->AddRectFilled(min, max, IM_COL32(8, 12, 18, 235), 4.0f);
-            pList->AddRect(min, max, accent, 4.0f, 0, 1.5f);
-            pList->AddRectFilled(min, offset(min, 4.0f, size.y), accent, 4.0f, ImDrawFlags_RoundCornersLeft);
-            text(pList, offset(min, 10.0f, 4.0f), 12.0f, accent, label);
-            textRight(pList, max.x - 34.0f, min.y + 18.0f, 24.0f, HUD_TEXT, value);
-            text(pList, { max.x - 30.0f, min.y + 28.0f }, 12.0f, HUD_MUTED, unit);
+            const ImVec2 min = offset(centre, -42.0f, -26.0f);
+            const ImVec2 max = offset(centre, 42.0f, 26.0f);
+            pList->AddRectFilled(min, max, HUD_BOX, 3.0f);
+            pList->AddRect(min, max, accent, 3.0f, 0, 1.5f);
+            text(pList, offset(min, 6.0f, 3.0f), 11.0f, accent, label);
+            textRight(pList, max.x - 6.0f, min.y + 15.0f, 22.0f, HUD_TEXT, value);
+            textRight(pList, max.x - 6.0f, max.y - 13.0f, 11.0f, accent, unit);
         }
 
         // A fuel gauge: green fill for what's left, with the tonnes written over it
@@ -189,6 +204,62 @@ namespace tenth
             }
         }
 
+        // Text centred on a point
+        void textCentred(ImDrawList* pList, ImVec2 at, float size, ImU32 color, const char* value)
+        {
+            const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, value);
+            text(pList, { at.x - extent.x * 0.5f, at.y - extent.y * 0.5f }, size, color, value);
+        }
+
+        // Hours, minutes, and seconds, as in 00:04:35
+        std::string clockText(double seconds)
+        {
+            const long long total = (long long)std::max(0.0, seconds);
+            char value[32];
+            std::snprintf(value, sizeof(value), "%02lld:%02lld:%02lld", total / 3600, total / 60 % 60, total % 60);
+            return value;
+        }
+
+        // A dark panel with an edge, the backing for every part of the HUD
+        void panel(ImDrawList* pList, ImVec2 min, ImVec2 max, ImU32 edge)
+        {
+            pList->AddRectFilled(min, max, HUD_PANEL, 6.0f);
+            pList->AddRect(min, max, edge, 6.0f, 0, 1.5f);
+        }
+
+        // A small name sitting along a panel's bottom edge
+        void caption(ImDrawList* pList, ImVec2 min, ImVec2 max, const char* label)
+        {
+            textCentred(pList, { (min.x + max.x) * 0.5f, max.y - 7.0f }, 11.0f, HUD_CYAN, label);
+        }
+
+        // A height above the surface in kilometres, or metres while it's low
+        void writeHeight(char* value, size_t size, double height, const char*& unit)
+        {
+            if (std::abs(height) < 10000.0)
+            {
+                std::snprintf(value, size, "%.0f", height);
+                unit = "m";
+            }
+            else
+            {
+                std::snprintf(value, size, "%.1f", height / 1000.0);
+                unit = "km";
+            }
+        }
+
+        // The navball's colour for a direction this far above the horizon, darkened toward the ball's edge
+        ImU32 navballColor(double elevation, double facing)
+        {
+            const float t = (float)std::clamp(elevation * 25.0 + 0.5, 0.0, 1.0);
+            const float shade = 0.55f + 0.45f * (float)facing;
+            auto mix = [&](float ground, float sky)
+            {
+                return (int)((ground + (sky - ground) * t) * shade);
+            };
+            return IM_COL32(mix(NAVBALL_GROUND.x, NAVBALL_SKY.x), mix(NAVBALL_GROUND.y, NAVBALL_SKY.y), mix(NAVBALL_GROUND.z, NAVBALL_SKY.z), 255);
+        }
+
         // Thousands split with commas, as in 5,724
         std::string grouped(double value)
         {
@@ -198,6 +269,12 @@ namespace tenth
                 digits.insert((size_t)i, ",");
             }
             return digits;
+        }
+
+        // The same, keeping a minus sign
+        std::string signedGrouped(double value)
+        {
+            return std::string(value < 0.0 ? "-" : "") + grouped(std::abs(value));
         }
     }
 
@@ -215,6 +292,7 @@ namespace tenth
         const double radius = mSolarSystem.body(earth).radius;
         const Vehicle vehicle = makeVehicle(mDesign);
         mTime = 0.0;
+        mGForce = 1.0;
         mLaunched = false;
         mDebris.clear();
         mPuffs.clear();
@@ -256,6 +334,8 @@ namespace tenth
         {
             return;
         }
+        const Vec3d before = mRocket.velocity();
+        const BodyId reference = mRocket.reference();
         mRocket.step(dt, mSolarSystem, mTime);
         collectDropped();
         updateDebris(dt);
@@ -269,6 +349,17 @@ namespace tenth
             {
                 collide(mDebris[i].rocket, mDebris[j].rocket, dt);
             }
+        }
+
+        // What the crew feels is the change in velocity gravity alone wouldn't have made, along the rocket
+        if (mRocket.reference() == reference)
+        {
+            const Vec3d position = mRocket.position();
+            const double distance = position.length();
+            const Vec3d gravity = position * (-mSolarSystem.body(reference).mu / (distance * distance * distance));
+            const Vec3d felt = (mRocket.velocity() - before) / dt - gravity;
+            const double gForce = felt.dot(mRocket.toWorld({ 0.0, 1.0, 0.0 })) / STANDARD_GRAVITY;
+            mGForce += (gForce - mGForce) * std::min(1.0, dt * G_FORCE_SMOOTHING);
         }
         mTime += dt;
     }
@@ -611,11 +702,15 @@ namespace tenth
     {
         mStats = computeStats(mRocket.vehicle(), mSolarSystem.surfaceGravity(mRocket.reference()));
         drawStatusBar();
-        drawGauges();
+        drawClock();
+        drawInstruments();
+        drawOrbit();
+        drawGForce();
         drawStageStack();
     }
 
-    // Where the rocket is, the mission clock, and the way back to the building while it's still on the ground
+    // Top left: where the rocket is, from the body it's around out to the one that body orbits, and the way back
+    // to the building while it's still on the ground
     void FlightScene::drawStatusBar()
     {
         const BodyInfo& reference = mSolarSystem.body(mRocket.reference());
@@ -625,8 +720,18 @@ namespace tenth
                      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                          ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoFocusOnAppearing);
         const char* status = !mLaunched ? "On the launch pad" : mRocket.onGround() ? "On the ground" : "Flying";
-        const int seconds = (int)mTime;
-        ImGui::Text("%s   %s   T+ %02d:%02d:%02d", reference.name.c_str(), status, seconds / 3600, seconds / 60 % 60, seconds % 60);
+        if (reference.parent != NO_BODY)
+        {
+            ImGui::TextUnformatted(mSolarSystem.body(reference.parent).name.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("\\");
+            ImGui::SameLine();
+        }
+        ImGui::TextUnformatted(reference.name.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("\\");
+        ImGui::SameLine();
+        ImGui::TextUnformatted(status);
         if (mRocket.onGround() || !mLaunched)
         {
             ImGui::SameLine();
@@ -639,64 +744,354 @@ namespace tenth
         ImGui::End();
     }
 
-    // Bottom left: the throttle as an arc, with speed, altitude, and climb rate beside it
-    void FlightScene::drawGauges()
+    // Bottom middle: the mission clock, counting up from launch
+    void FlightScene::drawClock()
     {
-        const ImVec2 size = { 370.0f, 190.0f };
-        const ImVec2 min = { HUD_MARGIN, (float)GetScreenHeight() - size.y - HUD_MARGIN };
+        const ImVec2 size = { 220.0f, 46.0f };
+        const ImVec2 min = { ((float)GetScreenWidth() - size.x) * 0.5f, (float)GetScreenHeight() - size.y - HUD_MARGIN };
+        const ImVec2 max = offset(min, size.x, size.y);
         ImGui::SetNextWindowPos(min, ImGuiCond_Always);
         ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-        ImGui::Begin("Gauges", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs);
+        ImGui::Begin("Clock", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs);
         ImDrawList* pList = ImGui::GetWindowDrawList();
-        pList->AddRectFilled(min, offset(min, size.x, size.y), HUD_PANEL, 10.0f);
-        pList->AddRect(min, offset(min, size.x, size.y), HUD_EDGE, 10.0f, 0, 1.5f);
+        panel(pList, min, max, mLaunched ? HUD_GREEN : HUD_EDGE);
+        text(pList, offset(min, 12.0f, 8.0f), 16.0f, mLaunched ? HUD_GREEN : HUD_MUTED, "T+");
+        textRight(pList, max.x - 12.0f, min.y + 4.0f, 26.0f, HUD_TEXT, clockText(mTime).c_str());
+        caption(pList, min, max, "MISSION TIME");
+        ImGui::End();
+    }
 
-        // The arc runs up the left side, filling from the bottom as the throttle opens
-        const ImVec2 centre = offset(min, 100.0f, 95.0f);
-        const float radius = 70.0f;
-        const float start = PI * 0.62f;
-        const float end = PI * 1.38f;
-        const float throttle = (float)mRocket.throttle();
-        pList->PathArcTo(centre, radius, start, end, 40);
-        pList->PathStroke(HUD_DIM, 0, 16.0f);
-        if (throttle > 0.0f)
+    // Bottom left: the navball in a ring carrying the heading tape, the throttle arc to its left, the climb rate arc
+    // to its right, and the speed and altitude boxed either side
+    void FlightScene::drawInstruments()
+    {
+        const float radius = NAVBALL_RADIUS;
+        const ImVec2 centre = { HUD_MARGIN + ARC_RADIUS + ARC_WIDTH,
+                                (float)GetScreenHeight() - HUD_MARGIN - ORBIT_STRIP_SIZE.y - 8.0f - ARC_RADIUS * 0.85f };
+        ImGui::SetNextWindowPos({ 0.0f, 0.0f }, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({ (float)GetScreenWidth(), (float)GetScreenHeight() }, ImGuiCond_Always);
+        ImGui::Begin("Instruments", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoInputs);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        pList->AddCircleFilled(centre, NAVBALL_BEZEL, HUD_PANEL, 96);
+        pList->AddCircle(centre, NAVBALL_BEZEL, HUD_EDGE, 96, 1.5f);
+
+        const SurfaceFrame here = SurfaceFrame::below(mRocket.position(), 1.0);
+        const Vec3d north = -here.south;
+        const double degree = std::numbers::pi / 180.0;
+
+        // The nose is the middle of the ball. Across and down it are the rocket's own +Z and +X, the way a pilot
+        // facing up the nose would see them.
+        auto onBall = [&](const Vec3d& direction, ImVec2& at)
         {
-            pList->PathArcTo(centre, radius, start, start + (end - start) * throttle, 40);
-            pList->PathStroke(HUD_GREEN, 0, 16.0f);
+            const Vec3d local = mRocket.toLocal(direction);
+            at = offset(centre, (float)local.z * radius, (float)local.x * radius);
+            return local.y >= 0.0;
+        };
+        auto direction = [&](double heading, double elevation)
+        {
+            const Vec3d level = north * std::cos(heading) + here.east * std::sin(heading);
+            return level * std::cos(elevation) + here.up * std::sin(elevation);
+        };
+
+        // The ball itself, as rings of points round the middle, each coloured by whether it looks at sky or ground
+        const ImVec2 white = ImGui::GetFontTexUvWhitePixel();
+        const int vertices = 1 + NAVBALL_RINGS * NAVBALL_SEGMENTS;
+        const int triangles = NAVBALL_SEGMENTS + (NAVBALL_RINGS - 1) * NAVBALL_SEGMENTS * 2;
+        pList->PrimReserve(triangles * 3, vertices);
+        const unsigned int base = pList->_VtxCurrentIdx;
+        auto writePoint = [&](double across, double down)
+        {
+            const double facing = std::sqrt(std::max(0.0, 1.0 - across * across - down * down));
+            const Vec3d look = mRocket.toWorld({ down, facing, across });
+            pList->PrimWriteVtx(offset(centre, (float)across * radius, (float)down * radius), white, navballColor(look.dot(here.up), facing));
+        };
+        writePoint(0.0, 0.0);
+        for (int ring = 1; ring <= NAVBALL_RINGS; ring++)
+        {
+            const double reach = (double)ring / NAVBALL_RINGS;
+            for (int segment = 0; segment < NAVBALL_SEGMENTS; segment++)
+            {
+                const double angle = 2.0 * std::numbers::pi * segment / NAVBALL_SEGMENTS;
+                writePoint(reach * std::cos(angle), reach * std::sin(angle));
+            }
         }
-        for (int tick = 0; tick <= 4; tick++)
+        auto ringPoint = [&](int ring, int segment)
         {
-            const float angle = start + (end - start) * tick / 4.0f;
-            const float c = std::cos(angle);
-            const float s = std::sin(angle);
-            pList->AddLine(offset(centre, c * (radius + 10.0f), s * (radius + 10.0f)), offset(centre, c * (radius + 16.0f), s * (radius + 16.0f)),
-                           HUD_MUTED, 2.0f);
+            return (ImDrawIdx)(base + 1 + (ring - 1) * NAVBALL_SEGMENTS + segment % NAVBALL_SEGMENTS);
+        };
+        for (int segment = 0; segment < NAVBALL_SEGMENTS; segment++)
+        {
+            pList->PrimWriteIdx((ImDrawIdx)base);
+            pList->PrimWriteIdx(ringPoint(1, segment));
+            pList->PrimWriteIdx(ringPoint(1, segment + 1));
+        }
+        for (int ring = 1; ring < NAVBALL_RINGS; ring++)
+        {
+            for (int segment = 0; segment < NAVBALL_SEGMENTS; segment++)
+            {
+                pList->PrimWriteIdx(ringPoint(ring, segment));
+                pList->PrimWriteIdx(ringPoint(ring + 1, segment));
+                pList->PrimWriteIdx(ringPoint(ring + 1, segment + 1));
+                pList->PrimWriteIdx(ringPoint(ring, segment));
+                pList->PrimWriteIdx(ringPoint(ring + 1, segment + 1));
+                pList->PrimWriteIdx(ringPoint(ring, segment + 1));
+            }
+        }
+
+        // Lines across the ball: the horizon, rings every 30 degrees above and below it, and the compass headings
+        auto stroke = [&](auto along, ImU32 color, float thickness)
+        {
+            ImVec2 previous;
+            bool previousShown = false;
+            for (int step = 0; step <= 96; step++)
+            {
+                ImVec2 at;
+                const bool shown = onBall(along(step / 96.0), at);
+                if (shown && previousShown)
+                {
+                    pList->AddLine(previous, at, color, thickness);
+                }
+                previous = at;
+                previousShown = shown;
+            }
+        };
+        for (int elevation = -60; elevation <= 60; elevation += 30)
+        {
+            const ImU32 color = elevation == 0 ? HUD_TEXT : IM_COL32(255, 255, 255, 90);
+            stroke([&](double t) { return direction(t * 2.0 * std::numbers::pi, elevation * degree); }, color, elevation == 0 ? 2.0f : 1.0f);
+        }
+        for (int heading = 0; heading < 360; heading += 45)
+        {
+            stroke([&](double t) { return direction(heading * degree, (t * 160.0 - 80.0) * degree); }, IM_COL32(255, 255, 255, 60), 1.0f);
+        }
+        const char* compass[] = { "N", "E", "S", "W" };
+        for (int i = 0; i < 4; i++)
+        {
+            ImVec2 at;
+            if (onBall(direction(i * 90.0 * degree, 0.0), at))
+            {
+                textCentred(pList, offset(at, 0.0f, -9.0f), 15.0f, HUD_TEXT, compass[i]);
+            }
+        }
+
+        // Prograde is a circle with three ticks, where it's moving; retrograde, a crossed circle opposite
+        const double speed = mRocket.velocity().length();
+        ImVec2 at;
+        if (speed > 0.5 && onBall(mRocket.velocity() / speed, at))
+        {
+            pList->AddCircle(at, 7.0f, HUD_YELLOW, 20, 2.0f);
+            pList->AddLine(offset(at, 0.0f, -7.0f), offset(at, 0.0f, -14.0f), HUD_YELLOW, 2.0f);
+            pList->AddLine(offset(at, -7.0f, 0.0f), offset(at, -14.0f, 0.0f), HUD_YELLOW, 2.0f);
+            pList->AddLine(offset(at, 7.0f, 0.0f), offset(at, 14.0f, 0.0f), HUD_YELLOW, 2.0f);
+            pList->AddCircleFilled(at, 1.5f, HUD_YELLOW);
+        }
+        if (speed > 0.5 && onBall(mRocket.velocity() / -speed, at))
+        {
+            pList->AddCircle(at, 7.0f, HUD_YELLOW, 20, 2.0f);
+            pList->AddLine(offset(at, -5.0f, -5.0f), offset(at, 5.0f, 5.0f), HUD_YELLOW, 2.0f);
+            pList->AddLine(offset(at, -5.0f, 5.0f), offset(at, 5.0f, -5.0f), HUD_YELLOW, 2.0f);
+        }
+
+        // The nose marker stays fixed in the middle while the ball turns behind it
+        const ImVec2 nose[] = { offset(centre, -26.0f, 0.0f), offset(centre, -10.0f, 0.0f), offset(centre, 0.0f, 9.0f), offset(centre, 10.0f, 0.0f),
+                                offset(centre, 26.0f, 0.0f) };
+        pList->AddPolyline(nose, 5, HUD_ORANGE, 0, 3.0f);
+        pList->AddCircleFilled(centre, 2.5f, HUD_ORANGE);
+        pList->AddCircle(centre, radius + 1.0f, HUD_EDGE, 72, 2.0f);
+
+        // Heading is the compass bearing of the nose, which is meaningless while it points straight up or down
+        const Vec3d facing = mRocket.toWorld({ 0.0, 1.0, 0.0 });
+        const double pitch = std::asin(std::clamp(facing.dot(here.up), -1.0, 1.0)) / degree;
+        const bool hasHeading = std::abs(pitch) < 89.5;
+        double heading = std::atan2(facing.dot(here.east), facing.dot(north)) / degree;
+        heading = heading < 0.0 ? heading + 360.0 : heading;
+
+        // The heading tape runs round the top of the ring, centred on where the nose points
+        const double span = 60.0; // degrees of heading shown either side of the middle
+        const float sweep = PI * 0.32f;
+        if (hasHeading)
+        {
+            for (int mark = (int)std::ceil((heading - span) / 10.0) * 10; mark <= heading + span; mark += 10)
+            {
+                const float angle = -PI * 0.5f + (float)((mark - heading) / span) * sweep;
+                const float c = std::cos(angle);
+                const float s = std::sin(angle);
+                const bool major = (mark % 30 + 30) % 30 == 0;
+                const float length = major ? 8.0f : 5.0f;
+                pList->AddLine(offset(centre, c * (radius + 3.0f), s * (radius + 3.0f)), offset(centre, c * (radius + 3.0f + length), s * (radius + 3.0f + length)),
+                               major ? HUD_TEXT : HUD_MUTED, 1.5f);
+                // The label under the heading box would hide behind its pointer
+                if (major && std::abs(mark - heading) > 8.0)
+                {
+                    char label[8];
+                    std::snprintf(label, sizeof(label), "%d", (mark % 360 + 360) % 360);
+                    textCentred(pList, offset(centre, c * (radius + 18.0f), s * (radius + 18.0f)), 10.0f, HUD_MUTED, label);
+                }
+            }
         }
         char value[32];
-        std::snprintf(value, sizeof(value), "%d%%", (int)std::lround(throttle * 100.0f));
-        textRight(pList, centre.x + 50.0f, centre.y - 26.0f, 32.0f, HUD_TEXT, value);
-        text(pList, offset(centre, -16.0f, 10.0f), 12.0f, HUD_GREEN, "THROTTLE");
-        std::snprintf(value, sizeof(value), "%.0f kN", mRocket.thrust() / 1000.0);
-        text(pList, offset(centre, -16.0f, 26.0f), 14.0f, HUD_MUTED, value);
-
-        const Vec3d up = mRocket.position().normalized();
-        const double altitude = std::max(0.0, mRocket.altitude(mSolarSystem));
-        const ImVec2 box = { 170.0f, 50.0f };
-        const float left = min.x + size.x - box.x - 12.0f;
-        std::snprintf(value, sizeof(value), "%.1f", mRocket.velocity().length());
-        readout(pList, { left, min.y + 12.0f }, box, HUD_YELLOW, "SURFACE SPEED", value, "m/s");
-        if (altitude < 10000.0)
+        const ImVec2 headingMin = offset(centre, -32.0f, -NAVBALL_BEZEL - 24.0f);
+        const ImVec2 headingMax = offset(centre, 32.0f, -NAVBALL_BEZEL + 6.0f);
+        pList->AddRectFilled(headingMin, headingMax, HUD_BOX, 3.0f);
+        pList->AddRect(headingMin, headingMax, HUD_TEXT, 3.0f, 0, 1.5f);
+        pList->AddTriangleFilled({ centre.x - 5.0f, headingMax.y }, { centre.x + 5.0f, headingMax.y }, { centre.x, headingMax.y + 6.0f }, HUD_TEXT);
+        if (hasHeading)
         {
-            std::snprintf(value, sizeof(value), "%.0f", altitude);
-            readout(pList, { left, min.y + 70.0f }, box, HUD_PINK, "ALTITUDE", value, "m");
+            std::snprintf(value, sizeof(value), "%03d", (int)std::lround(heading) % 360);
         }
         else
         {
-            std::snprintf(value, sizeof(value), "%.2f", altitude / 1000.0);
-            readout(pList, { left, min.y + 70.0f }, box, HUD_PINK, "ALTITUDE", value, "km");
+            std::snprintf(value, sizeof(value), "---");
         }
-        std::snprintf(value, sizeof(value), "%+.1f", mRocket.velocity().dot(up));
-        readout(pList, { left, min.y + 128.0f }, box, HUD_CYAN, "VERTICAL SPEED", value, "m/s");
+        textCentred(pList, { centre.x, (headingMin.y + headingMax.y) * 0.5f }, 22.0f, HUD_TEXT, value);
+        std::snprintf(value, sizeof(value), "PITCH %+.0f", pitch);
+        textCentred(pList, offset(centre, 0.0f, radius + 15.0f), 11.0f, HUD_MUTED, value);
+
+        // The throttle fills the left arc from the bottom, its share tagged at the top and the thrust at the bottom
+        const float throttle = (float)mRocket.throttle();
+        const float low = PI * 0.7f;
+        const float high = PI * 1.3f;
+        pList->PathArcTo(centre, ARC_RADIUS, low, high, 40);
+        pList->PathStroke(HUD_DIM, 0, ARC_WIDTH);
+        if (throttle > 0.0f)
+        {
+            pList->PathArcTo(centre, ARC_RADIUS, low, low + (high - low) * throttle, 40);
+            pList->PathStroke(HUD_GREEN, 0, ARC_WIDTH);
+        }
+        for (int tick = 0; tick <= 4; tick++)
+        {
+            const float angle = low + (high - low) * tick / 4.0f;
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
+            pList->AddLine(offset(centre, c * (ARC_RADIUS + 9.0f), s * (ARC_RADIUS + 9.0f)), offset(centre, c * (ARC_RADIUS + 14.0f), s * (ARC_RADIUS + 14.0f)),
+                           HUD_MUTED, 2.0f);
+        }
+        const ImVec2 arcTop = offset(centre, std::cos(high) * ARC_RADIUS, std::sin(high) * ARC_RADIUS);
+        const ImVec2 tagMin = offset(arcTop, -24.0f, -34.0f);
+        const ImVec2 tagMax = offset(arcTop, 24.0f, -12.0f);
+        pList->AddRectFilled(tagMin, tagMax, HUD_BOX, 3.0f);
+        pList->AddRect(tagMin, tagMax, HUD_GREEN, 3.0f, 0, 1.5f);
+        std::snprintf(value, sizeof(value), "%d%%", (int)std::lround(throttle * 100.0f));
+        textCentred(pList, { arcTop.x, (tagMin.y + tagMax.y) * 0.5f }, 16.0f, HUD_TEXT, value);
+        const ImVec2 arcBottom = offset(centre, std::cos(low) * ARC_RADIUS, std::sin(low) * ARC_RADIUS);
+        std::snprintf(value, sizeof(value), "%.0f kN", mRocket.thrust() / 1000.0);
+        textRight(pList, arcBottom.x - 12.0f, arcBottom.y - 4.0f, 13.0f, HUD_MUTED, value);
+
+        // The climb rate swings the right arc up or down from the middle, spread out so small rates still show
+        const Vec3d up = mRocket.position().normalized();
+        const double climb = mRocket.velocity().dot(up);
+        auto climbAngle = [](double rate)
+        {
+            const float share = (float)std::min(1.0, std::log10(1.0 + std::abs(rate)) / 3.0);
+            return (rate >= 0.0 ? -share : share) * PI * 0.3f;
+        };
+        pList->PathArcTo(centre, ARC_RADIUS, -PI * 0.3f, PI * 0.3f, 40);
+        pList->PathStroke(HUD_DIM, 0, ARC_WIDTH);
+        const float climbTo = climbAngle(climb);
+        if (std::abs(climbTo) > 0.001f)
+        {
+            pList->PathArcTo(centre, ARC_RADIUS, std::min(0.0f, climbTo), std::max(0.0f, climbTo), 40);
+            pList->PathStroke(climb >= 0.0 ? HUD_BLUE : HUD_RED, 0, ARC_WIDTH);
+        }
+        for (double rate : { -100.0, -10.0, 10.0, 100.0 })
+        {
+            const float angle = climbAngle(rate);
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
+            pList->AddLine(offset(centre, c * (ARC_RADIUS + 9.0f), s * (ARC_RADIUS + 9.0f)), offset(centre, c * (ARC_RADIUS + 14.0f), s * (ARC_RADIUS + 14.0f)),
+                           HUD_MUTED, 2.0f);
+            std::snprintf(value, sizeof(value), "%+.0f", rate);
+            text(pList, offset(centre, c * (ARC_RADIUS + 17.0f), s * (ARC_RADIUS + 17.0f) - 6.0f), 10.0f, HUD_MUTED, value);
+        }
+        pList->AddLine(offset(centre, ARC_RADIUS - ARC_WIDTH * 0.5f, 0.0f), offset(centre, ARC_RADIUS + 14.0f, 0.0f), HUD_TEXT, 2.0f);
+        std::snprintf(value, sizeof(value), "%+.1f", climb);
+        text(pList, offset(centre, ARC_RADIUS + 18.0f, -14.0f), 16.0f, HUD_TEXT, value);
+        text(pList, offset(centre, ARC_RADIUS + 18.0f, 2.0f), 11.0f, HUD_CYAN, "m/s");
+
+        // Speed and altitude sit boxed over the sides of the ring
+        std::snprintf(value, sizeof(value), "%.1f", speed);
+        sideBox(pList, offset(centre, -100.0f, 0.0f), HUD_YELLOW, "SURFACE", value, "m/s");
+        const char* unit = "m";
+        writeHeight(value, sizeof(value), std::max(0.0, mRocket.altitude(mSolarSystem)), unit);
+        sideBox(pList, offset(centre, 100.0f, 0.0f), HUD_PINK, "ALTITUDE", value, unit);
+        ImGui::End();
+    }
+
+    // Under the instruments: how high and low the rocket's orbit reaches, and how long until it gets to each
+    void FlightScene::drawOrbit()
+    {
+        const BodyInfo& reference = mSolarSystem.body(mRocket.reference());
+        const OrbitInfo orbit = orbitFrom(mRocket.position(), mRocket.velocity(), reference.mu);
+        const ImVec2 min = { HUD_MARGIN, (float)GetScreenHeight() - ORBIT_STRIP_SIZE.y - HUD_MARGIN };
+        const ImVec2 max = offset(min, ORBIT_STRIP_SIZE.x, ORBIT_STRIP_SIZE.y);
+        ImGui::SetNextWindowPos(min, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ORBIT_STRIP_SIZE, ImGuiCond_Always);
+        ImGui::Begin("Orbit", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        panel(pList, min, max, HUD_EDGE);
+
+        // Each line is a name, the height in metres, and when it gets there
+        auto line = [&](float y, ImU32 accent, const char* label, const std::string& height, const std::string& when)
+        {
+            text(pList, { min.x + 10.0f, y }, 15.0f, accent, label);
+            textRight(pList, min.x + 160.0f, y, 15.0f, HUD_TEXT, height.c_str());
+            text(pList, { min.x + 164.0f, y + 3.0f }, 11.0f, accent, "m");
+            text(pList, { min.x + 186.0f, y + 1.0f }, 13.0f, HUD_MUTED, when.c_str());
+        };
+        if (orbit.escaping)
+        {
+            line(min.y + 4.0f, HUD_BLUE, "AP", "---", "escaping");
+        }
+        else
+        {
+            line(min.y + 4.0f, HUD_BLUE, "AP", signedGrouped(orbit.apoapsis - reference.radius), "in T-" + clockText(orbit.timeToApoapsis));
+        }
+
+        // A periapsis under the surface means the orbit still runs into the ground
+        const double low = orbit.periapsis - reference.radius;
+        const bool passed = orbit.escaping && orbit.timeToPeriapsis <= 0.0;
+        line(min.y + 20.0f, low < 0.0 ? HUD_RED : HUD_PINK, "PE", signedGrouped(low), passed ? "passed" : "in T-" + clockText(orbit.timeToPeriapsis));
+        caption(pList, min, max, "ORBITAL INFO");
+        char value[32];
+        std::snprintf(value, sizeof(value), "INC %.1f", orbit.inclination * 180.0 / std::numbers::pi);
+        textRight(pList, max.x - 8.0f, max.y - 13.0f, 11.0f, HUD_MUTED, value);
+        ImGui::End();
+    }
+
+    // Top right: how hard the crew is pressed back into their seats, in multiples of Earth's gravity
+    void FlightScene::drawGForce()
+    {
+        const ImVec2 size = { 58.0f, 140.0f };
+        const ImVec2 min = { (float)GetScreenWidth() - size.x - HUD_MARGIN, HUD_MARGIN };
+        const ImVec2 max = offset(min, size.x, size.y);
+        ImGui::SetNextWindowPos(min, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+        ImGui::Begin("G force", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        panel(pList, min, max, HUD_EDGE);
+        const float top = min.y + 26.0f;
+        const float bottom = max.y - 20.0f;
+        const float barX = min.x + 34.0f;
+        auto heightOf = [&](double g)
+        {
+            return bottom - (float)((std::clamp(g, -5.0, 15.0) + 5.0) / 20.0) * (bottom - top);
+        };
+        pList->AddRectFilled({ barX, top }, { barX + 10.0f, bottom }, HUD_DIM, 2.0f);
+        const float zero = heightOf(0.0);
+        const float now = heightOf(mGForce);
+        const bool hard = mGForce > 6.0 || mGForce < -2.0;
+        pList->AddRectFilled({ barX, std::min(zero, now) }, { barX + 10.0f, std::max(zero, now) + 1.0f }, hard ? HUD_RED : HUD_GREEN, 2.0f);
+        for (int g : { 15, 5, 0, -5 })
+        {
+            char label[8];
+            std::snprintf(label, sizeof(label), "%d", g);
+            textRight(pList, barX - 5.0f, heightOf(g) - 6.0f, 11.0f, HUD_MUTED, label);
+            pList->AddLine({ barX - 3.0f, heightOf(g) }, { barX, heightOf(g) }, HUD_MUTED, 1.0f);
+        }
+        char value[16];
+        std::snprintf(value, sizeof(value), "%.1f", mGForce);
+        textCentred(pList, { (min.x + max.x) * 0.5f, min.y + 12.0f }, 16.0f, hard ? HUD_RED : HUD_TEXT, value);
+        caption(pList, min, max, "G FORCE");
         ImGui::End();
     }
 
@@ -730,15 +1125,16 @@ namespace tenth
         const bool canStage = vehicle.nextStage < design.stageCount();
         const ImVec2 goMin = { right - width, bottom - 70.0f };
         const ImVec2 goMax = { right, bottom };
-        pList->AddRectFilled(goMin, goMax, canStage ? HUD_DARK_GREEN : HUD_PANEL, 6.0f);
-        pList->AddRect(goMin, goMax, canStage ? HUD_GREEN : HUD_EDGE, 6.0f, 0, 2.0f);
-        text(pList, offset(goMin, 12.0f, 4.0f), 34.0f, canStage ? HUD_GREEN : HUD_MUTED, mLaunched ? "GO" : "LAUNCH");
+        const ImU32 ink = canStage ? HUD_GO_INK : HUD_MUTED;
+        pList->AddRectFilled(goMin, goMax, canStage ? HUD_GO : HUD_PANEL, 6.0f);
+        pList->AddRect(goMin, goMax, canStage ? HUD_GO_EDGE : HUD_EDGE, 6.0f, 0, 2.0f);
+        text(pList, offset(goMin, 12.0f, 4.0f), 34.0f, ink, mLaunched ? "GO" : "LAUNCH");
         std::snprintf(value, sizeof(value), "%d", design.stageCount() - vehicle.nextStage);
-        pList->AddRectFilled({ goMax.x - 44.0f, goMin.y + 8.0f }, { goMax.x - 8.0f, goMin.y + 38.0f }, canStage ? HUD_GREEN : HUD_DIM, 4.0f);
-        textRight(pList, goMax.x - 16.0f, goMin.y + 10.0f, 26.0f, HUD_ON_GREEN, value);
-        text(pList, { goMin.x + 12.0f, goMax.y - 22.0f }, 14.0f, HUD_MUTED, "dV");
+        pList->AddRectFilled({ goMax.x - 44.0f, goMin.y + 8.0f }, { goMax.x - 8.0f, goMin.y + 38.0f }, canStage ? HUD_GO_INK : HUD_DIM, 4.0f);
+        textRight(pList, goMax.x - 16.0f, goMin.y + 10.0f, 26.0f, canStage ? HUD_GO : HUD_MUTED, value);
+        text(pList, { goMin.x + 12.0f, goMax.y - 22.0f }, 14.0f, ink, "dV");
         std::snprintf(value, sizeof(value), "%s m/s", grouped(mStats.totalDeltaVVacuum).c_str());
-        textRight(pList, goMax.x - 10.0f, goMax.y - 25.0f, 19.0f, HUD_TEXT, value);
+        textRight(pList, goMax.x - 10.0f, goMax.y - 25.0f, 19.0f, canStage ? HUD_GO_INK : HUD_TEXT, value);
         bottom = goMin.y - 8.0f;
 
         // The current stage, opened out: its delta-v, what it fires, and the fuel each engine group draws from

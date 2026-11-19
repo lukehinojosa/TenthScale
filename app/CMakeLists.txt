@@ -27,6 +27,7 @@ add_library(flight STATIC
     src/flight/DesignFile.cpp
     src/flight/PartDrawing.cpp
     src/flight/StageSymbol.cpp
+    src/flight/OrbitInfo.cpp
     src/flight/BuildScene.cpp
     src/flight/FlightScene.cpp
 )

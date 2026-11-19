@@ -8,6 +8,7 @@
 #include <engine/Sky.h>
 
 #include "flight/DesignStats.h"
+#include "flight/OrbitInfo.h"
 #include "flight/Rocket.h"
 #include "flight/RocketDesign.h"
 #include "flight/SurfaceFrame.h"
@@ -56,7 +57,10 @@ namespace tenth
         void stage();
 
         void drawStatusBar();
-        void drawGauges();
+        void drawClock();
+        void drawInstruments();
+        void drawOrbit();
+        void drawGForce();
         void drawStageStack();
 
         Camera3D& mCamera;
@@ -98,6 +102,7 @@ namespace tenth
         float mFramedHeight = 0.0f; // the rocket's height the zoom was last set for
         bool mSnapCamera = true;
         double mTime = 0.0;
+        double mGForce = 1.0; // the push felt along the rocket, in multiples of Earth's gravity, smoothed
         bool mLaunched = false;
 
         double mPreviousNear = 0.0; // the other scenes' clip planes, put back on leaving
