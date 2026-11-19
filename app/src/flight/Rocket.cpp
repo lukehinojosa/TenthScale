@@ -13,6 +13,9 @@ namespace tenth
         constexpr double GROUND_FRICTION = 0.8;
         constexpr double GROUND_BOUNCE = 0.1;
         constexpr double TOUCH_DISTANCE = 0.02; // points this close above the ground count as touching it
+        constexpr double PIECE_FRICTION = 0.5;
+        constexpr double PIECE_BOUNCE = 0.2;
+        constexpr double NOSE_CONE_CHARGE = 0.4; // how big a nose cone's pop looks next to a decoupler's
 
         cyclone::Vector3 toCyclone(const Vec3d& v)
         {
@@ -72,6 +75,8 @@ namespace tenth
         mBody.setOrientation(fromAxes(upright.east, upright.up, upright.south));
         mBody.setAngularVelocity({ 0.0, 0.0, 0.0 });
         mOnGround = false;
+        mClimbRate = 0.0;
+        mDropped.clear();
     }
 
     void Rocket::setVehicle(const Vehicle& vehicle)
@@ -102,7 +107,127 @@ namespace tenth
 
     std::vector<PartIndex> Rocket::fireNextStage()
     {
-        return tenth::fireNextStage(mVehicle);
+        const int stage = mVehicle.nextStage;
+        const std::vector<PartIndex> fired = tenth::fireNextStage(mVehicle);
+        bool opensParachute = false;
+        for (PartIndex i : fired)
+        {
+            opensParachute = opensParachute || mVehicle.design.part(i).pDefinition->hasParachute;
+        }
+        if (opensParachute)
+        {
+            popNoseCones();
+        }
+
+        // Each split renumbers the parts, so this stage's decouplers are looked up afresh after every one. One riding
+        // on a piece another has already dropped goes with it unfired.
+        while (true)
+        {
+            PartIndex decoupler = NO_PART;
+            for (PartIndex i : mVehicle.design.partsInStage(stage))
+            {
+                if (mVehicle.design.part(i).pDefinition->separates && i != 0)
+                {
+                    decoupler = i;
+                    break;
+                }
+            }
+            if (decoupler == NO_PART)
+            {
+                break;
+            }
+            splitOff(decoupler, mVehicle.design.part(decoupler).position, DECOUPLER_SPEED, 1.0);
+        }
+        return fired;
+    }
+
+    std::vector<Separation> Rocket::takeSeparations()
+    {
+        std::vector<Separation> separations = std::move(mSeparations);
+        mSeparations.clear();
+        return separations;
+    }
+
+    std::vector<Rocket> Rocket::takeDropped()
+    {
+        std::vector<Rocket> dropped = std::move(mDropped);
+        mDropped.clear();
+        return dropped;
+    }
+
+    void Rocket::popNoseCones()
+    {
+        while (true)
+        {
+            PartIndex cone = NO_PART;
+            for (PartIndex i = 1; i < mVehicle.design.partCount(); i++)
+            {
+                if (mVehicle.design.part(i).pDefinition->popsOffAtPeak)
+                {
+                    cone = i;
+                    break;
+                }
+            }
+            if (cone == NO_PART)
+            {
+                return;
+            }
+            // The parachute packed under the cone shoves it off from where the two meet
+            const PlacedPart& placed = mVehicle.design.part(cone);
+            splitOff(cone, placed.position - Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 }, NOSE_CONE_SPEED, NOSE_CONE_CHARGE);
+        }
+    }
+
+    // Both halves carry on with the motion they had as one, spin included. Then the push kicks them apart from where
+    // it sits, equally and oppositely, so their total momentum doesn't change.
+    void Rocket::splitOff(PartIndex index, const Vec3d& pushFrom, double speed, double size)
+    {
+        const Vec3d centre = position();
+        const Vec3d oldCenterOfMass = mVehicle.centerOfMass;
+        const Vec3d spinNow = spin();
+        const Vec3d site = centre + toWorld(pushFrom - oldCenterOfMass);
+        const Vec3d jointVelocity = velocity() + spinNow.cross(site - centre);
+        Vec3d rootOffset;
+        Vehicle branch = detachBranch(mVehicle, index, rootOffset);
+
+        // Whatever's let go of has nothing left to steer or throttle it, so its engines go quiet
+        branch.lit.assign(branch.lit.size(), false);
+
+        Rocket piece = *this;
+        piece.mDropped.clear();
+        piece.mSeparations.clear();
+        piece.setVehicle(branch);
+        applyMass();
+        const Vec3d pieceArm = toWorld(rootOffset + branch.centerOfMass - oldCenterOfMass);
+        const Vec3d keptArm = toWorld(mVehicle.centerOfMass - oldCenterOfMass);
+        piece.mBody.setPosition(toCyclone(centre + pieceArm));
+        mBody.setPosition(toCyclone(centre + keptArm));
+        piece.mBody.setLinearVelocity(toCyclone(velocity() + spinNow.cross(pieceArm)));
+        mBody.setLinearVelocity(toCyclone(velocity() + spinNow.cross(keptArm)));
+
+        // The impulse that would part two free bodies at this speed if it pushed through both their centers
+        const Vec3d apart = (keptArm - pieceArm).normalized();
+        const double total = branch.mass + mVehicle.mass;
+        if (total > 0.0)
+        {
+            const Vec3d impulse = apart * (speed * branch.mass * mVehicle.mass / total);
+            kick(impulse, site);
+            piece.kick(-impulse, site);
+        }
+        mSeparations.push_back({ site, jointVelocity, apart, size, keptArm });
+        mDropped.push_back(std::move(piece));
+    }
+
+    void Rocket::kick(const Vec3d& impulse, const Vec3d& site)
+    {
+        if (mVehicle.mass <= 0.0)
+        {
+            return;
+        }
+        mBody.setLinearVelocity(toCyclone(velocity() + impulse / mVehicle.mass));
+        const Vec3d twist = (site - position()).cross(impulse);
+        const cyclone::Vector3 turn = mBody.getInverseInertiaTensorWorld().transform(toCyclone(twist));
+        mBody.setAngularVelocity(mBody.getAngularVelocity() + turn);
     }
 
     Vec3d Rocket::position() const
@@ -199,6 +324,82 @@ namespace tenth
         applyMass();
 
         touchGround(dt, system);
+
+        // Once flying, the moment it stops climbing is the top of the climb
+        const double climbRate = velocity().dot(position().normalized());
+        if (mVehicle.nextStage > 0 && !mOnGround && mClimbRate > 0.0 && climbRate <= 0.0)
+        {
+            popNoseCones();
+        }
+        mClimbRate = climbRate;
+    }
+
+    double Rocket::reach() const
+    {
+        double furthest = 0.0;
+        for (const Vec3d& point : mVehicle.outline)
+        {
+            furthest = std::max(furthest, (point - mVehicle.centerOfMass).length());
+        }
+        return furthest;
+    }
+
+    void Rocket::addContactsInside(Rocket& other, std::vector<cyclone::Contact>& contacts)
+    {
+        const RocketDesign& otherDesign = other.mVehicle.design;
+        for (const Vec3d& part : mVehicle.outline)
+        {
+            const cyclone::Vector3 world = mBody.getPointInWorldSpace(toCyclone(part - mVehicle.centerOfMass));
+            const Vec3d inOther = fromCyclone(other.mBody.getPointInLocalSpace(world)) + other.mVehicle.centerOfMass;
+
+            // The shallowest way out of whichever of the other's parts it's in
+            double best = 0.0;
+            Vec3d outward;
+            for (PartIndex i = 0; i < otherDesign.partCount(); i++)
+            {
+                double depth = 0.0;
+                Vec3d out;
+                if (insidePart(otherDesign, i, inOther, depth, out) && (best <= 0.0 || depth < best))
+                {
+                    best = depth;
+                    outward = out;
+                }
+            }
+            if (best <= 0.0)
+            {
+                continue;
+            }
+
+            // The normal points out of the other rocket, toward this one, as Cyclone expects for body[0]
+            cyclone::Contact contact;
+            contact.point = world;
+            contact.normal = toCyclone(other.toWorld(outward));
+            contact.penetration = best;
+            contact.body[0] = &mBody;
+            contact.body[1] = &other.mBody;
+            contact.friction = PIECE_FRICTION;
+            contact.restitution = PIECE_BOUNCE;
+            contacts.push_back(contact);
+        }
+    }
+
+    void collide(Rocket& a, Rocket& b, double dt)
+    {
+        if (a.mReference != b.mReference || a.mVehicle.mass <= 0.0 || b.mVehicle.mass <= 0.0)
+        {
+            return;
+        }
+        if ((a.position() - b.position()).length() > a.reach() + b.reach())
+        {
+            return;
+        }
+        std::vector<cyclone::Contact> contacts;
+        a.addContactsInside(b, contacts);
+        b.addContactsInside(a, contacts);
+        if (!contacts.empty())
+        {
+            a.mResolver.resolveContacts(contacts.data(), (unsigned)contacts.size(), dt);
+        }
     }
 
     // Each burning engine pushes up the rocket's axis from where it sits, so lopsided engines would turn it

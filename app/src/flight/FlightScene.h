@@ -1,5 +1,8 @@
 #pragma once
 
+#include <random>
+#include <vector>
+
 #include <raylib.h>
 
 #include <engine/Sky.h>
@@ -34,7 +37,20 @@ namespace tenth
         Vector3 toScene(const Vec3d& position) const;
 
         void drawGround() const;
-        void drawFlames() const;
+
+        // Draws a rocket or dropped piece where it is, turned however it's facing
+        void drawRocket(const Rocket& rocket) const;
+        void drawFlames(const Rocket& rocket) const;
+        void drawParachutes(const Rocket& rocket) const;
+
+        // Steps the dropped pieces and clears away those that have landed and settled or fallen far behind
+        void updateDebris(double dt);
+        void collectDropped();
+
+        // A flash, sparks, and smoke where pieces came apart
+        void burst(const Separation& separation);
+        void updateEffects(double dt);
+        void drawEffects() const;
 
         // Fires the next stage, or launches if the rocket is still on the pad
         void stage();
@@ -48,8 +64,39 @@ namespace tenth
         const SolarSystem& mSolarSystem;
         DesignStats mStats; // of what's left to burn, worked out each frame
         Rocket mRocket;
+
+        // A dropped stage or nose cone, falling on its own
+        struct Debris
+        {
+            Rocket rocket;
+            double settledTime = 0.0; // how long it has lain still on the ground
+        };
+        std::vector<Debris> mDebris;
+
+        // One blob of a separation's flash, sparks, or smoke. It moves with what it came off, and its own outward
+        // speed fades as it spreads.
+        struct Puff
+        {
+            Vec3d position;
+            Vec3d velocity;
+            Vec3d drift; // the joint's velocity, which the puff settles back to
+            double age = 0.0;
+            double life = 1.0;
+            double fade = 0.0; // how quickly its outward speed dies away, per second
+            float radius = 0.1f;
+            float growth = 0.0f; // metres per second
+            Color color = WHITE;
+        };
+        std::vector<Puff> mPuffs;
+        std::mt19937 mRandom{ 7 };
         SurfaceFrame mPad;
         OrbitCamera mOrbit;
+
+        // The camera eases to a new framing when the rocket splits, rather than jumping with its center of mass
+        Vector3 mFocus{};
+        float mZoomTarget = 0.0f; // 0 while not easing the zoom
+        float mFramedHeight = 0.0f; // the rocket's height the zoom was last set for
+        bool mSnapCamera = true;
         double mTime = 0.0;
         bool mLaunched = false;
 

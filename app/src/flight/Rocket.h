@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <cyclone/rigidBody.h>
 #include <cyclone/rigidContactResolver.h>
 
@@ -8,6 +10,17 @@
 
 namespace tenth
 {
+    // A charge going off where two pieces came apart, for the flight view to show. Positions and velocities are
+    // relative to the rocket's reference body.
+    struct Separation
+    {
+        Vec3d site;
+        Vec3d velocity; // of the joint just before the charge went off
+        Vec3d axis; // the way the pieces were pushed apart
+        double size = 1.0; // 1 for a decoupler; nose cones pop with a smaller puff
+        Vec3d shift; // how far the rocket's center of mass jumped as the piece left, so a view following it can stay put
+    };
+
     // The rocket in flight as one rigid body: it moves, turns, and spins under gravity and its engines, and rests on
     // the ground.
     // Position and velocity are kept relative to the body whose gravity it's in, so they stay precise and the rocket
@@ -15,6 +28,9 @@ namespace tenth
     class Rocket
     {
     public:
+        static constexpr double DECOUPLER_SPEED = 5.0; // m/s a decoupler's charge parts the two halves at
+        static constexpr double NOSE_CONE_SPEED = 8.0; // the parachute shoves the cone off this fast
+
         Rocket();
 
         // Places the rocket relative to a body, standing straight up from it and not spinning
@@ -28,8 +44,15 @@ namespace tenth
         void setThrottle(double throttle);
         double throttle() const { return mVehicle.throttle; }
 
-        // Fires the next stage, lighting its engines. Returns the parts it fired.
+        // Fires the next stage: lights its engines, opens its parachutes, and lets go of whatever its decouplers
+        // hold. Opening a parachute pops off any nose cone still covering it. Returns the parts it fired.
         std::vector<PartIndex> fireNextStage();
+
+        // The pieces that have come away since the last call, each flying on its own now
+        std::vector<Rocket> takeDropped();
+
+        // Where pieces have come apart since the last call
+        std::vector<Separation> takeSeparations();
 
         // The engines' total push in the last step, in newtons, and the air pressure they pushed against
         double thrust() const { return mThrust; }
@@ -60,6 +83,10 @@ namespace tenth
         // Leans it over by angle radians about an axis given in the reference body's axes
         void turn(const Vec3d& axis, double angle);
 
+        // Pushes two separate rockets apart where any part of one has entered a part of the other, such as a dropped
+        // stage catching up with the rocket it came off
+        friend void collide(Rocket& a, Rocket& b, double dt);
+
         Vec3d absolutePosition(const SolarSystem& system, double time) const;
         Vec3d absoluteVelocity(const SolarSystem& system, double time) const;
 
@@ -67,9 +94,25 @@ namespace tenth
         void updateReference(const SolarSystem& system, double time);
         void pushWithEngines();
 
+        // Lets the part and everything attached through it go as a rocket of its own, with its engines shut off.
+        // A push from site, in the design's axes, kicks the two apart at this speed; size is how big it looks.
+        void splitOff(PartIndex index, const Vec3d& site, double speed, double size);
+
+        // A sudden push at a point, which turns the rocket too unless it's in line with the center of mass
+        void kick(const Vec3d& impulse, const Vec3d& site);
+
+        // Nose cones come away at the top of the climb, uncovering the parachute
+        void popNoseCones();
+
         // Hands Cyclone the vehicle's mass and inertia; the body's position stays the center of mass as fuel burns
         void applyMass();
         void touchGround(double dt, const SolarSystem& system);
+
+        // Contacts for each of this rocket's outline points inside one of other's parts
+        void addContactsInside(Rocket& other, std::vector<cyclone::Contact>& contacts);
+
+        // How far the furthest outline point reaches from the center of mass
+        double reach() const;
 
         BodyId mReference = NO_BODY;
         cyclone::RigidBody mBody;
@@ -79,5 +122,10 @@ namespace tenth
         bool mOnGround = false;
         double mThrust = 0.0;
         double mPressure = 0.0;
+        double mClimbRate = 0.0; // last step's, for spotting the top of the climb
+        std::vector<Rocket> mDropped;
+        std::vector<Separation> mSeparations;
     };
+
+    void collide(Rocket& a, Rocket& b, double dt);
 }

@@ -84,24 +84,139 @@ namespace tenth
         return points;
     }
 
+    bool insidePart(const RocketDesign& design, PartIndex index, const Vec3d& point, double& depth, Vec3d& outward)
+    {
+        const PlacedPart& placed = design.part(index);
+        const PartShape& shape = placed.shape;
+        const Vec3d local = point - placed.position;
+        const double halfHeight = shape.height * 0.5;
+        if (std::abs(local.y) >= halfHeight)
+        {
+            return false;
+        }
+
+        // The nearest of the top, the bottom, and the sides is the way out
+        depth = halfHeight - local.y;
+        outward = { 0.0, 1.0, 0.0 };
+        if (halfHeight + local.y < depth)
+        {
+            depth = halfHeight + local.y;
+            outward = { 0.0, -1.0, 0.0 };
+        }
+        if (shape.kind == ShapeKind::Round)
+        {
+            const double bottomRadius = (design.isShrouded(index) ? shape.topDiameter : shape.bottomDiameter) * 0.5;
+            const double topRadius = shape.topDiameter * 0.5;
+            const double radius = bottomRadius + (topRadius - bottomRadius) * (local.y + halfHeight) / shape.height;
+            const double across = std::hypot(local.x, local.z);
+            if (across >= radius)
+            {
+                return false;
+            }
+            if (radius - across < depth)
+            {
+                depth = radius - across;
+                outward = across > 0.0 ? Vec3d{ local.x / across, 0.0, local.z / across } : Vec3d{ 1.0, 0.0, 0.0 };
+            }
+            return true;
+        }
+
+        // A box is turned to face away from its parent, so the point is turned back into the box's own axes
+        const double c = std::cos(placed.angle);
+        const double s = std::sin(placed.angle);
+        const double x = local.x * c - local.z * s;
+        const double z = local.x * s + local.z * c;
+        const double halfThickness = shape.thickness * 0.5;
+        const double halfSpan = shape.span * 0.5;
+        if (std::abs(x) >= halfThickness || std::abs(z) >= halfSpan)
+        {
+            return false;
+        }
+        const double sideX = halfThickness - std::abs(x);
+        const double sideZ = halfSpan - std::abs(z);
+        if (sideX < depth && sideX <= sideZ)
+        {
+            depth = sideX;
+            const double sign = x < 0.0 ? -1.0 : 1.0;
+            outward = { sign * c, 0.0, -sign * s };
+        }
+        else if (sideZ < depth)
+        {
+            depth = sideZ;
+            const double sign = z < 0.0 ? -1.0 : 1.0;
+            outward = { sign * s, 0.0, sign * c };
+        }
+        return true;
+    }
+
+    namespace
+    {
+        // Sections and the outline depend on how the parts connect, so they're redone whenever the rocket splits
+        void rebuild(Vehicle& vehicle)
+        {
+            const RocketDesign& design = vehicle.design;
+            vehicle.sections = sectionStarts(design);
+            vehicle.outline.clear();
+            for (PartIndex i = 0; i < design.partCount(); i++)
+            {
+                const std::vector<Vec3d> points = partOutline(design, i);
+                vehicle.outline.insert(vehicle.outline.end(), points.begin(), points.end());
+            }
+            updateMass(vehicle);
+            if (!design.empty())
+            {
+                vehicle.groundClearance = vehicle.centerOfMass.y - design.lowestPoint();
+            }
+        }
+    }
+
     Vehicle makeVehicle(const RocketDesign& design)
     {
         Vehicle vehicle;
         vehicle.design = design;
-        vehicle.sections = sectionStarts(design);
         vehicle.lit.assign(design.partCount(), false);
+        vehicle.deployed.assign(design.partCount(), false);
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
             vehicle.fuel.push_back(design.part(i).pDefinition->fuelMass);
-            const std::vector<Vec3d> points = partOutline(design, i);
-            vehicle.outline.insert(vehicle.outline.end(), points.begin(), points.end());
         }
-        updateMass(vehicle);
-        if (!design.empty())
-        {
-            vehicle.groundClearance = vehicle.centerOfMass.y - design.lowestPoint();
-        }
+        rebuild(vehicle);
         return vehicle;
+    }
+
+    Vehicle detachBranch(Vehicle& vehicle, PartIndex index, Vec3d& rootOffset)
+    {
+        // Parents come first, so one pass in order finds the whole branch; both halves keep their parts in order
+        const int count = vehicle.design.partCount();
+        std::vector<bool> inBranch(count, false);
+        for (PartIndex i = index; i < count; i++)
+        {
+            const PartIndex parent = vehicle.design.part(i).parent;
+            inBranch[i] = i == index || (parent != NO_PART && inBranch[parent]);
+        }
+
+        Vehicle branch;
+        branch.throttle = vehicle.throttle;
+        Vehicle kept = vehicle;
+        kept.fuel.clear();
+        kept.lit.clear();
+        kept.deployed.clear();
+        for (PartIndex i = 0; i < count; i++)
+        {
+            Vehicle& side = inBranch[i] ? branch : kept;
+            side.fuel.push_back(vehicle.fuel[i]);
+            side.lit.push_back(vehicle.lit[i]);
+            side.deployed.push_back(vehicle.deployed[i]);
+        }
+        rootOffset = vehicle.design.part(index).position;
+        branch.design = kept.design.extract(index);
+        rebuild(branch);
+        rebuild(kept);
+
+        // The ground clearance is kept from rollout, as it's only for standing on the pad
+        kept.groundClearance = vehicle.groundClearance;
+        vehicle = std::move(kept);
+        return branch;
     }
 
     void updateMass(Vehicle& vehicle)
@@ -144,9 +259,14 @@ namespace tenth
         const std::vector<PartIndex> fired = vehicle.design.partsInStage(vehicle.nextStage);
         for (PartIndex i : fired)
         {
-            if (vehicle.design.part(i).pDefinition->isEngine())
+            const PartDefinition& definition = *vehicle.design.part(i).pDefinition;
+            if (definition.isEngine())
             {
                 vehicle.lit[i] = true;
+            }
+            if (definition.hasParachute)
+            {
+                vehicle.deployed[i] = true;
             }
         }
         vehicle.nextStage++;

@@ -33,6 +33,18 @@ namespace tenth
         constexpr Color FLAME_COLOR = { 255, 170, 60, 200 };
         constexpr Color FLAME_CORE_COLOR = { 255, 240, 200, 230 };
         constexpr float FLAME_LENGTH = 6.0f; // metres at full throttle in vacuum, per metre of nozzle width
+        constexpr Color CANOPY_COLOR = { 240, 120, 40, 255 };
+        constexpr Color CANOPY_STRIPE_COLOR = { 245, 245, 240, 255 };
+        constexpr float CANOPY_DIAMETER = 6.0f;
+        constexpr float CANOPY_RISE = 7.0f; // how far above the pod the canopy flies
+        constexpr Color FLASH_COLOR = { 255, 240, 190, 255 };
+        constexpr Color SPARK_COLOR = { 255, 190, 80, 255 };
+        constexpr Color SMOKE_COLOR = { 200, 200, 205, 255 };
+        constexpr int SPARK_COUNT = 30; // for a decoupler; smaller charges make fewer
+        constexpr int SMOKE_COUNT = 14;
+        constexpr float CAMERA_EASE = 2.5f; // per second: how quickly the camera closes the gap to its new framing
+        constexpr double DEBRIS_SETTLE_TIME = 8.0; // seconds lying still before a dropped piece is cleared away
+        constexpr double DEBRIS_RANGE = 40.0e3; // metres from the rocket past which a dropped piece is forgotten
         constexpr double THROTTLE_RATE = 0.5; // share of full throttle per second while Shift or Ctrl is held
 
         constexpr float HUD_MARGIN = 12.0f;
@@ -200,6 +212,8 @@ namespace tenth
         const Vehicle vehicle = makeVehicle(mDesign);
         mTime = 0.0;
         mLaunched = false;
+        mDebris.clear();
+        mPuffs.clear();
         mRocket.setVehicle(vehicle);
         mRocket.place(earth, { radius + vehicle.groundClearance, 0.0, 0.0 }, {});
         mPad = SurfaceFrame::below(mRocket.position(), radius);
@@ -220,6 +234,9 @@ namespace tenth
         mOrbit.distance = std::max(14.0f, height * 1.8f);
         mOrbit.yaw = 0.6f;
         mOrbit.pitch = 0.15f;
+        mZoomTarget = 0.0f;
+        mFramedHeight = height;
+        mSnapCamera = true;
         onUpdate(0.0, 0.0);
     }
 
@@ -236,7 +253,160 @@ namespace tenth
             return;
         }
         mRocket.step(dt, mSolarSystem, mTime);
+        collectDropped();
+        updateDebris(dt);
+        updateEffects(dt);
+
+        // Every piece can knock into the rocket and into every other piece
+        for (size_t i = 0; i < mDebris.size(); i++)
+        {
+            collide(mRocket, mDebris[i].rocket, dt);
+            for (size_t j = i + 1; j < mDebris.size(); j++)
+            {
+                collide(mDebris[i].rocket, mDebris[j].rocket, dt);
+            }
+        }
         mTime += dt;
+    }
+
+    void FlightScene::collectDropped()
+    {
+        for (const Separation& separation : mRocket.takeSeparations())
+        {
+            burst(separation);
+
+            // The scene is centred on the rocket, so the camera steps back by the jump to stay where it was
+            const Vector3 jump = toRaylib(mPad.rotate(separation.shift));
+            mFocus = { mFocus.x - jump.x, mFocus.y - jump.y, mFocus.z - jump.z };
+        }
+
+        // A shorter rocket is framed closer, the same way rollout frames it
+        const RocketDesign& design = mRocket.vehicle().design;
+        const float height = (float)(design.highestPoint() - design.lowestPoint());
+        if (height != mFramedHeight && mFramedHeight > 0.0f)
+        {
+            const float target = mZoomTarget > 0.0f ? mZoomTarget : mOrbit.distance;
+            mZoomTarget = target * std::max(14.0f, height * 1.8f) / std::max(14.0f, mFramedHeight * 1.8f);
+            mFramedHeight = height;
+        }
+        for (Rocket& piece : mRocket.takeDropped())
+        {
+            mDebris.push_back({ std::move(piece), 0.0 });
+        }
+    }
+
+    // A ring of sparks and smoke thrown out sideways from the joint, around a quick flash
+    void FlightScene::burst(const Separation& separation)
+    {
+        std::uniform_real_distribution<double> unit(0.0, 1.0);
+        auto between = [&](double low, double high)
+        {
+            return low + (high - low) * unit(mRandom);
+        };
+
+        // Two directions square to the axis, for throwing things out around it
+        const Vec3d axis = separation.axis.lengthSquared() > 0.0 ? separation.axis : Vec3d{ 0.0, 1.0, 0.0 };
+        const Vec3d helper = std::abs(axis.x) < 0.9 ? Vec3d{ 1.0, 0.0, 0.0 } : Vec3d{ 0.0, 1.0, 0.0 };
+        const Vec3d side = axis.cross(helper).normalized();
+        const Vec3d other = axis.cross(side);
+        auto outward = [&](double lift)
+        {
+            const double angle = between(0.0, 2.0 * std::numbers::pi);
+            return (side * std::cos(angle) + other * std::sin(angle) + axis * between(-lift, lift)).normalized();
+        };
+
+        const double size = separation.size;
+        Puff flash;
+        flash.position = separation.site;
+        flash.velocity = separation.velocity;
+        flash.drift = separation.velocity;
+        flash.life = 0.18;
+        flash.radius = (float)(0.5 * size);
+        flash.growth = (float)(14.0 * size);
+        flash.color = FLASH_COLOR;
+        mPuffs.push_back(flash);
+
+        for (int i = 0; i < (int)(SPARK_COUNT * size); i++)
+        {
+            Puff spark;
+            spark.position = separation.site;
+            spark.velocity = separation.velocity + outward(0.3) * between(15.0, 35.0) * size;
+            spark.drift = separation.velocity;
+            spark.life = between(0.3, 0.7);
+            spark.fade = 1.5;
+            spark.radius = (float)between(0.06, 0.12);
+            spark.color = SPARK_COLOR;
+            mPuffs.push_back(spark);
+        }
+        for (int i = 0; i < (int)(SMOKE_COUNT * size); i++)
+        {
+            Puff smoke;
+            smoke.position = separation.site;
+            smoke.velocity = separation.velocity + outward(0.5) * between(2.0, 6.0) * size;
+            smoke.drift = separation.velocity;
+            smoke.life = between(1.2, 2.4);
+            smoke.fade = 2.5;
+            smoke.radius = (float)(between(0.3, 0.5) * size);
+            smoke.growth = (float)(between(0.8, 1.6) * size);
+            smoke.color = SMOKE_COLOR;
+            mPuffs.push_back(smoke);
+        }
+    }
+
+    // Puffs fall with the pieces they came off, so the smoke stays where the split happened
+    void FlightScene::updateEffects(double dt)
+    {
+        const double mu = mSolarSystem.body(mRocket.reference()).mu;
+        for (Puff& puff : mPuffs)
+        {
+            const double distanceSquared = puff.position.lengthSquared();
+            const Vec3d gravity = distanceSquared > 0.0 ? puff.position.normalized() * (-mu / distanceSquared) : Vec3d{};
+            puff.drift += gravity * dt;
+            puff.velocity = puff.drift + (puff.velocity + gravity * dt - puff.drift) * std::exp(-puff.fade * dt);
+            puff.position += puff.velocity * dt;
+            puff.age += dt;
+        }
+        std::erase_if(mPuffs,
+                      [](const Puff& puff)
+                      {
+                          return puff.age >= puff.life;
+                      });
+    }
+
+    // Drawn see-through and without writing depth, so overlapping puffs blend instead of cutting into each other
+    void FlightScene::drawEffects() const
+    {
+        if (mPuffs.empty())
+        {
+            return;
+        }
+        rlDrawRenderBatchActive();
+        rlDisableDepthMask();
+        for (const Puff& puff : mPuffs)
+        {
+            const float left = 1.0f - (float)(puff.age / puff.life);
+            const float radius = puff.radius + puff.growth * (float)puff.age;
+            DrawSphereEx(toScene(puff.position), radius, 6, 8, Fade(puff.color, left * (puff.color.a / 255.0f)));
+        }
+        rlDrawRenderBatchActive();
+        rlEnableDepthMask();
+    }
+
+    void FlightScene::updateDebris(double dt)
+    {
+        for (Debris& debris : mDebris)
+        {
+            debris.rocket.step(dt, mSolarSystem, mTime);
+            const bool still = debris.rocket.onGround() && debris.rocket.velocity().length() < 0.5;
+            debris.settledTime = still ? debris.settledTime + dt : 0.0;
+        }
+        std::erase_if(mDebris,
+                      [this](const Debris& debris)
+                      {
+                          const bool far = debris.rocket.reference() != mRocket.reference() ||
+                                           (debris.rocket.position() - mRocket.position()).length() > DEBRIS_RANGE;
+                          return far || debris.settledTime > DEBRIS_SETTLE_TIME;
+                      });
     }
 
     // The camera circles the middle of the rocket and never dips below the ground under it
@@ -264,17 +434,38 @@ namespace tenth
 
         const Vehicle& vehicle = mRocket.vehicle();
         const double middle = (vehicle.design.highestPoint() + vehicle.design.lowestPoint()) * 0.5;
-        mOrbit.focus = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, middle - vehicle.centerOfMass.y, 0.0 })));
-        mOrbit.minFocusHeight = mOrbit.focus.y;
-        mOrbit.maxFocusHeight = mOrbit.focus.y;
+        const Vector3 target = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, middle - vehicle.centerOfMass.y, 0.0 })));
+        const float follow = mSnapCamera ? 1.0f : 1.0f - std::exp(-CAMERA_EASE * (float)frameDt);
+        mSnapCamera = false;
+        mFocus = { mFocus.x + (target.x - mFocus.x) * follow, mFocus.y + (target.y - mFocus.y) * follow,
+                   mFocus.z + (target.z - mFocus.z) * follow };
+        mOrbit.focus = mFocus;
+        mOrbit.minFocusHeight = mFocus.y;
+        mOrbit.maxFocusHeight = mFocus.y;
         mOrbit.minCameraHeight = toScene(mPad.origin).y + 0.5f;
+        if (mZoomTarget > 0.0f)
+        {
+            mOrbit.distance += (mZoomTarget - mOrbit.distance) * follow;
+        }
+        const float easedDistance = mOrbit.distance;
         mOrbit.update(mCamera, (float)frameDt);
+
+        // Scrolling while it eases moves where it's heading too, so the wheel still works
+        if (mZoomTarget > 0.0f)
+        {
+            mZoomTarget *= mOrbit.distance / easedDistance;
+            if (std::abs(mZoomTarget - mOrbit.distance) < 0.01f * mZoomTarget)
+            {
+                mZoomTarget = 0.0f;
+            }
+        }
     }
 
     void FlightScene::stage()
     {
         mLaunched = true;
         mRocket.fireNextStage();
+        collectDropped();
     }
 
     Vector3 FlightScene::toScene(const Vec3d& position) const
@@ -319,24 +510,35 @@ namespace tenth
         DrawCube(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, TOWER_COLOR);
         DrawCubeWires(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, ColorBrightness(TOWER_COLOR, -0.5f));
 
-        // The rocket's center of mass is the scene's origin, with the design turned however the rocket is facing
-        const Vehicle& vehicle = mRocket.vehicle();
-        const Vector3 x = toRaylib(mPad.rotate(mRocket.toWorld({ 1.0, 0.0, 0.0 })));
-        const Vector3 y = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, 1.0, 0.0 })));
-        const Vector3 z = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, 0.0, 1.0 })));
-        const Matrix facing = { x.x, y.x, z.x, 0.0f, x.y, y.y, z.y, 0.0f, x.z, y.z, z.z, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+        drawRocket(mRocket);
+        for (const Debris& debris : mDebris)
+        {
+            drawRocket(debris.rocket);
+        }
+        drawEffects();
+    }
+
+    // The flying rocket's center of mass is the scene's origin, so pieces are drawn where they sit from it
+    void FlightScene::drawRocket(const Rocket& rocket) const
+    {
+        const Vector3 x = toRaylib(mPad.rotate(rocket.toWorld({ 1.0, 0.0, 0.0 })));
+        const Vector3 y = toRaylib(mPad.rotate(rocket.toWorld({ 0.0, 1.0, 0.0 })));
+        const Vector3 z = toRaylib(mPad.rotate(rocket.toWorld({ 0.0, 0.0, 1.0 })));
+        const Vector3 at = toScene(rocket.position());
+        const Matrix facing = { x.x, y.x, z.x, at.x, x.y, y.y, z.y, at.y, x.z, y.z, z.z, at.z, 0.0f, 0.0f, 0.0f, 1.0f };
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloat(facing));
-        drawDesign(vehicle.design, toRaylib(-vehicle.centerOfMass));
-        drawFlames();
+        drawDesign(rocket.vehicle().design, toRaylib(-rocket.vehicle().centerOfMass));
+        drawFlames(rocket);
+        drawParachutes(rocket);
         rlPopMatrix();
     }
 
     // A cone of exhaust under each burning engine, longer with more throttle and in thinner air. Drawn in the
     // rocket's own axes.
-    void FlightScene::drawFlames() const
+    void FlightScene::drawFlames(const Rocket& rocket) const
     {
-        const Vehicle& vehicle = mRocket.vehicle();
+        const Vehicle& vehicle = rocket.vehicle();
         if (vehicle.throttle <= 0.0)
         {
             return;
@@ -350,11 +552,36 @@ namespace tenth
             const PlacedPart& placed = vehicle.design.part(i);
             const Vec3d nozzle = placed.position - vehicle.centerOfMass - Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 };
             const float width = (float)placed.shape.bottomDiameter;
-            const float spread = (float)(1.0 - mRocket.pressure() * 0.4);
+            const float spread = (float)(1.0 - rocket.pressure() * 0.4);
             const float length = width * FLAME_LENGTH * (float)vehicle.throttle * spread;
             const Vector3 top = toRaylib(nozzle);
             DrawCylinderEx(top, { top.x, top.y - length, top.z }, width * 0.45f, 0.0f, 12, FLAME_COLOR);
             DrawCylinderEx(top, { top.x, top.y - length * 0.5f, top.z }, width * 0.3f, 0.0f, 12, FLAME_CORE_COLOR);
+        }
+    }
+
+    // An open parachute flies above its part on lines from the part's top. Drawn in the rocket's own axes.
+    void FlightScene::drawParachutes(const Rocket& rocket) const
+    {
+        const Vehicle& vehicle = rocket.vehicle();
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            if (!vehicle.deployed[i])
+            {
+                continue;
+            }
+            const PlacedPart& placed = vehicle.design.part(i);
+            const Vector3 top = toRaylib(placed.position - vehicle.centerOfMass + Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 });
+            const Vector3 rim = { top.x, top.y + CANOPY_RISE, top.z };
+            const float radius = CANOPY_DIAMETER * 0.5f;
+            DrawCylinderEx(rim, { rim.x, rim.y + radius * 0.35f, rim.z }, radius, radius * 0.75f, 16, CANOPY_COLOR);
+            DrawCylinderEx({ rim.x, rim.y + radius * 0.35f, rim.z }, { rim.x, rim.y + radius * 0.6f, rim.z }, radius * 0.75f, radius * 0.2f, 16,
+                           CANOPY_STRIPE_COLOR);
+            for (int line = 0; line < 8; line++)
+            {
+                const float angle = 2.0f * PI * line / 8.0f;
+                DrawLine3D(top, { rim.x + radius * std::cos(angle), rim.y, rim.z + radius * std::sin(angle) }, CANOPY_STRIPE_COLOR);
+            }
         }
     }
 
@@ -457,12 +684,17 @@ namespace tenth
     {
         const Vehicle& vehicle = mRocket.vehicle();
         const RocketDesign& design = vehicle.design;
-        bool burning = false;
+        // The stage opened out is the latest one with an engine still burning, or else the next to fire
+        int burningStage = -1;
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
-            burning = burning || isBurning(vehicle, i);
+            if (isBurning(vehicle, i))
+            {
+                burningStage = std::max(burningStage, design.part(i).stage);
+            }
         }
-        const int current = burning ? vehicle.nextStage - 1 : vehicle.nextStage;
+        const bool burning = burningStage >= 0;
+        const int current = burning ? burningStage : vehicle.nextStage;
         const float width = 240.0f;
         const float right = (float)GetScreenWidth() - HUD_MARGIN;
         float bottom = (float)GetScreenHeight() - HUD_MARGIN;
@@ -531,7 +763,7 @@ namespace tenth
 
         // The later stages as small numbered boxes, the last to fire at the top
         const float boxSize = 56.0f;
-        for (int stageIndex = std::max(current + 1, vehicle.nextStage); stageIndex < design.stageCount(); stageIndex++)
+        for (int stageIndex = vehicle.nextStage + (burning ? 0 : 1); stageIndex < design.stageCount(); stageIndex++)
         {
             const ImVec2 boxMin = { right - boxSize, bottom - boxSize };
             pList->AddRectFilled(boxMin, { right, bottom }, HUD_PANEL, 6.0f);

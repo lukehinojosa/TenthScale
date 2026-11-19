@@ -27,6 +27,7 @@ namespace tenth
         RocketDesign design; // kept whole, so stages can drop parts in flight
         std::vector<double> fuel; // kg left in each part
         std::vector<bool> lit; // engines the staging key has lit
+        std::vector<bool> deployed; // parachutes the staging key has opened
         std::vector<PartIndex> sections; // the part starting each part's section, whose tanks its engines draw from
         double throttle = 1.0; // 0 to 1, shared by every lit engine
         int nextStage = 0; // the stage the next press of the staging key fires
@@ -51,14 +52,23 @@ namespace tenth
     // Points on the part's rims or corners, in the design's axes: enough for it to rest and pivot on the ground
     std::vector<Vec3d> partOutline(const RocketDesign& design, PartIndex index);
 
+    // Whether a point, in the design's axes, lies inside the part. If it does, depth is how far it is from the
+    // nearest face and outward is the way out through that face.
+    bool insidePart(const RocketDesign& design, PartIndex index, const Vec3d& point, double& depth, Vec3d& outward);
+
     // With every tank full and nothing lit
     Vehicle makeVehicle(const RocketDesign& design);
 
     // Works out mass, center of mass, and inertia again from the fuel left
     void updateMass(Vehicle& vehicle);
 
-    // Lights the engines in the next stage and moves on to the one after. Returns the parts it fired.
+    // Lights the engines and opens the parachutes in the next stage, and moves on to the one after. Decouplers are
+    // left for the caller, since splitting the rocket moves it. Returns the parts it fired.
     std::vector<PartIndex> fireNextStage(Vehicle& vehicle);
+
+    // Takes the part and everything attached through it off as a vehicle of its own, each part keeping its fuel and
+    // lit engines. rootOffset is where the new vehicle's root sat in this one's design, before the split.
+    Vehicle detachBranch(Vehicle& vehicle, PartIndex index, Vec3d& rootOffset);
 
     double sectionFuel(const Vehicle& vehicle, PartIndex section);
     double sectionCapacity(const Vehicle& vehicle, PartIndex section);
