@@ -60,6 +60,8 @@ namespace tenth
         void drawClock();
         void drawInstruments();
         void drawSas();
+        void drawSasSwitch();
+        void drawSasControl();
         void drawOrbit();
         void drawGForce();
         void drawStageStack();
@@ -105,6 +107,7 @@ namespace tenth
         double mTime = 0.0;
         double mGForce = 1.0; // the push felt along the rocket, in multiples of Earth's gravity, smoothed
         bool mLaunched = false;
+        float mSasPointer = -1.5707963f; // where the dial's rocket points, in screen radians, easing toward the mode
 
         double mPreviousNear = 0.0; // the other scenes' clip planes, put back on leaving
         double mPreviousFar = 0.0;

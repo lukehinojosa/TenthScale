@@ -72,11 +72,18 @@ namespace tenth
         constexpr float ARC_RADIUS = 150.0f; // the throttle and climb rate arcs either side of the ball
         constexpr float ARC_WIDTH = 14.0f;
         constexpr ImVec2 ORBIT_STRIP_SIZE = { 340.0f, 50.0f };
-        constexpr float SAS_DIAL_RADIUS = 64.0f;
-        constexpr float SAS_DIAL_GAP = 290.0f; // from the navball's centre across to the dial's
-        constexpr float SAS_RING = 44.0f; // how far out the mode buttons sit
-        constexpr float SAS_BUTTON = 15.0f;
-        constexpr float SAS_CENTRE_BUTTON = 22.0f;
+        constexpr float SAS_DIAL_RADIUS = 74.0f;
+        constexpr ImVec2 SAS_DIAL_OFFSET = { 302.0f, -6.0f }; // from the navball's centre to the dial's
+        constexpr float SAS_RING = 52.0f; // how far out the mode buttons sit
+        constexpr float SAS_BUTTON = 17.0f;
+        constexpr float SAS_HUB = 30.0f; // the middle, where the rocket turns to point at the chosen mode
+        constexpr ImVec2 SAS_TAB_SIZE = { 172.0f, 52.0f }; // the strip under the dial for the modes that aren't directions
+        constexpr float SAS_POINTER_EASE = 10.0f; // per second
+        constexpr float SAS_SWITCH = 15.0f; // the on and off button sitting in the navball's ring
+        constexpr float SAS_SWITCH_ANGLE = PI * 0.33f; // below the right of the ring, clear of the altitude tape
+        constexpr float HEADING_SWEEP = PI * 0.2f; // how much of the ring the heading tape fills either side of its middle
+        constexpr float SIDE_SWEEP = PI * 0.25f; // the same for the speed and altitude tapes
+        constexpr float MARKER_SIZE = 7.0f;
         constexpr double G_FORCE_SMOOTHING = 4.0; // per second: how quickly the gauge follows the felt push
         constexpr ImVec4 NAVBALL_SKY = { 70.0f, 140.0f, 225.0f, 255.0f };
         constexpr ImVec4 NAVBALL_GROUND = { 165.0f, 105.0f, 55.0f, 255.0f };
@@ -175,16 +182,33 @@ namespace tenth
             text(pList, { x - width, y }, size, color, value);
         }
 
-        // A labelled number boxed at the side of the instruments, like the speed and altitude
-        void sideBox(ImDrawList* pList, ImVec2 centre, ImU32 accent, const char* label, const char* value, const char* unit)
+        // A labelled number boxed at the side of the instruments, like the speed and altitude. Given a share of the
+        // atmosphere climbed through, a gauge of its four layers runs up the box's right edge with a red mark at it.
+        void sideBox(ImDrawList* pList, ImVec2 centre, ImU32 accent, const char* label, const char* value, const char* unit, float air = -1.0f)
         {
             const ImVec2 min = offset(centre, -42.0f, -26.0f);
             const ImVec2 max = offset(centre, 42.0f, 26.0f);
             pList->AddRectFilled(min, max, HUD_BOX, 3.0f);
             pList->AddRect(min, max, accent, 3.0f, 0, 1.5f);
             text(pList, offset(min, 6.0f, 3.0f), 11.0f, accent, label);
-            textRight(pList, max.x - 6.0f, min.y + 15.0f, 22.0f, HUD_TEXT, value);
-            textRight(pList, max.x - 6.0f, max.y - 13.0f, 11.0f, accent, unit);
+            const float right = air >= 0.0f ? max.x - 14.0f : max.x - 6.0f;
+            textRight(pList, right, min.y + 15.0f, 22.0f, HUD_TEXT, value);
+            textRight(pList, right, max.y - 13.0f, 11.0f, accent, unit);
+            if (air < 0.0f)
+            {
+                return;
+            }
+            const ImU32 layers[] = { IM_COL32(120, 180, 235, 255), IM_COL32(70, 125, 205, 255), IM_COL32(40, 70, 155, 255), IM_COL32(28, 30, 80, 255) };
+            const float top = min.y + 5.0f;
+            const float bottom = max.y - 5.0f;
+            const float left = max.x - 10.0f;
+            const float layer = (bottom - top) / 4.0f;
+            for (int i = 0; i < 4; i++)
+            {
+                pList->AddRectFilled({ left, bottom - layer * (i + 1) + 0.5f }, { left + 5.0f, bottom - layer * i - 0.5f }, layers[i]);
+            }
+            const float mark = bottom - (bottom - top) * std::clamp(air, 0.0f, 1.0f);
+            pList->AddLine({ left - 3.0f, mark }, { left + 8.0f, mark }, HUD_RED, 2.5f);
         }
 
         // A fuel gauge: green fill for what's left, with the tonnes written over it
@@ -214,6 +238,51 @@ namespace tenth
         {
             const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, FLT_MAX, 0.0f, value);
             text(pList, { at.x - extent.x * 0.5f, at.y - extent.y * 0.5f }, size, color, value);
+        }
+
+        // A round number to step a tape by, so about three marks show either side of the middle
+        double tapeStep(double value)
+        {
+            const double raw = std::max(std::abs(value) * 0.2, 2.0);
+            const double power = std::pow(10.0, std::floor(std::log10(raw)));
+            for (double factor : { 1.0, 2.0, 5.0 })
+            {
+                if (power * factor >= raw)
+                {
+                    return power * factor;
+                }
+            }
+            return power * 10.0;
+        }
+
+        // Marks round part of the navball's ring sliding past its fixed middle as the value changes, larger values
+        // lying toward the end a positive sweep runs to. Major marks are labelled; nothing below lowest is shown.
+        template <typename Label>
+        void drawTape(ImDrawList* pList, ImVec2 centre, float radius, float middle, float sweep, double value, double step, int minors,
+                      double lowest, Label label)
+        {
+            const double span = step * 3.0;
+            const double minor = step / minors;
+            for (double mark = std::ceil((value - span) / minor) * minor; mark <= value + span; mark += minor)
+            {
+                if (mark < lowest - minor * 0.5)
+                {
+                    continue;
+                }
+                const float along = (float)((mark - value) / span);
+                const float angle = middle + along * sweep;
+                const float c = std::cos(angle);
+                const float s = std::sin(angle);
+                const bool major = std::abs(std::remainder(mark, step)) < minor * 0.5;
+                const float length = major ? 8.0f : 4.0f;
+                pList->AddLine(offset(centre, c * (radius + 3.0f), s * (radius + 3.0f)), offset(centre, c * (radius + 3.0f + length), s * (radius + 3.0f + length)),
+                               major ? HUD_TEXT : HUD_MUTED, 1.5f);
+                // Labels right at the ends would run into the next tape's
+                if (major && std::abs(along) < 0.85f)
+                {
+                    textCentred(pList, offset(centre, c * (radius + 18.0f), s * (radius + 18.0f)), 10.0f, HUD_MUTED, label(mark).c_str());
+                }
+            }
         }
 
         // Hours, minutes, and seconds, as in 00:04:35
@@ -328,41 +397,87 @@ namespace tenth
                 pList->AddCircleFilled(at, 1.5f, color);
                 break;
             case SasMode::Retrograde:
+            {
+                // The prograde symbol turned over, with a cross in the circle
                 pList->AddCircle(at, s, color, 20, 2.0f);
                 pList->AddLine(offset(at, -s * 0.7f, -s * 0.7f), offset(at, s * 0.7f, s * 0.7f), color, 2.0f);
                 pList->AddLine(offset(at, -s * 0.7f, s * 0.7f), offset(at, s * 0.7f, -s * 0.7f), color, 2.0f);
+                for (float angle : { PI * 0.5f, PI * 1.25f, PI * 1.75f })
+                {
+                    const float c = std::cos(angle);
+                    const float d = std::sin(angle);
+                    pList->AddLine(offset(at, c * s, d * s), offset(at, c * s * 2.0f, d * s * 2.0f), color, 2.0f);
+                }
                 break;
+            }
             case SasMode::Normal:
+                pList->AddTriangle(offset(at, 0.0f, -s * 1.3f), offset(at, -s * 1.15f, s * 0.75f), offset(at, s * 1.15f, s * 0.75f), color, 2.0f);
+                pList->AddCircleFilled(at, 1.5f, color);
+                break;
             case SasMode::AntiNormal:
             {
-                const float flip = mode == SasMode::Normal ? 1.0f : -1.0f;
-                pList->AddTriangle(offset(at, 0.0f, -s * 1.2f * flip), offset(at, -s * 1.1f, s * 0.8f * flip), offset(at, s * 1.1f, s * 0.8f * flip), color, 2.0f);
-                pList->AddCircleFilled(at, 1.5f, color);
+                // The normal triangle turned over, with spokes out of its corners
+                const ImVec2 corners[] = { offset(at, 0.0f, s * 1.1f), offset(at, -s * 0.95f, -s * 0.55f), offset(at, s * 0.95f, -s * 0.55f) };
+                pList->AddTriangle(corners[0], corners[1], corners[2], color, 2.0f);
+                for (const ImVec2& corner : corners)
+                {
+                    pList->AddLine(corner, { at.x + (corner.x - at.x) * 1.7f, at.y + (corner.y - at.y) * 1.7f }, color, 2.0f);
+                }
                 break;
             }
             case SasMode::RadialOut:
-            case SasMode::RadialIn:
-            {
                 pList->AddCircle(at, s, color, 20, 2.0f);
-                const float from = mode == SasMode::RadialOut ? s : s * 0.35f;
-                const float to = mode == SasMode::RadialOut ? s * 1.8f : s * 0.85f;
+                pList->AddCircleFilled(at, 1.5f, color);
                 for (int corner = 0; corner < 4; corner++)
                 {
                     const float angle = PI * 0.25f + PI * 0.5f * corner;
                     const float c = std::cos(angle);
                     const float d = std::sin(angle);
-                    pList->AddLine(offset(at, c * from, d * from), offset(at, c * to, d * to), color, 2.0f);
+                    pList->AddLine(offset(at, c * s, d * s), offset(at, c * s * 1.9f, d * s * 1.9f), color, 2.0f);
                 }
                 break;
-            }
+            case SasMode::RadialIn:
+                // Spokes pointing in toward the middle, square on so they don't read as retrograde's cross
+                pList->AddCircle(at, s, color, 20, 2.0f);
+                for (int side = 0; side < 4; side++)
+                {
+                    const float angle = PI * 0.5f * side;
+                    const float c = std::cos(angle);
+                    const float d = std::sin(angle);
+                    pList->AddLine(offset(at, c * s * 1.7f, d * s * 1.7f), offset(at, c * s * 0.3f, d * s * 0.3f), color, 2.0f);
+                }
+                break;
             case SasMode::Stability:
-                pList->AddRectFilled(offset(at, -s * 0.8f, -s * 0.1f), offset(at, s * 0.8f, s * 0.9f), color, 1.5f);
-                pList->PathArcTo(offset(at, 0.0f, -s * 0.1f), s * 0.5f, PI, PI * 2.0f, 12);
+                pList->PathLineTo(offset(at, -s * 0.55f, s * 0.2f));
+                pList->PathArcTo(offset(at, 0.0f, -s * 0.25f), s * 0.55f, PI, PI * 2.0f, 12);
+                pList->PathLineTo(offset(at, s * 0.55f, s * 0.2f));
                 pList->PathStroke(color, 0, 2.0f);
+                pList->AddRectFilled(offset(at, -s, s * 0.1f), offset(at, s, s * 1.2f), color, 2.0f);
+                pList->AddCircleFilled(offset(at, 0.0f, s * 0.6f), s * 0.2f, HUD_BOX);
                 break;
             case SasMode::Off:
                 break;
             }
+        }
+
+        // A rocket seen from the side, nose toward angle, for the SAS dial's middle
+        void drawPointer(ImDrawList* pList, ImVec2 centre, float angle, float length, ImU32 body, ImU32 trim)
+        {
+            const float c = std::cos(angle);
+            const float s = std::sin(angle);
+            auto at = [&](float along, float across)
+            {
+                const float x = along * length;
+                const float y = across * length;
+                return ImVec2{ centre.x + x * c - y * s, centre.y + x * s + y * c };
+            };
+            const ImVec2 hull[] = { at(0.5f, 0.0f), at(0.3f, 0.1f), at(-0.32f, 0.1f), at(-0.32f, -0.1f), at(0.3f, -0.1f) };
+            pList->AddConvexPolyFilled(hull, 5, body);
+            pList->AddTriangleFilled(at(-0.12f, 0.1f), at(-0.4f, 0.24f), at(-0.36f, 0.1f), trim);
+            pList->AddTriangleFilled(at(-0.12f, -0.1f), at(-0.36f, -0.1f), at(-0.4f, -0.24f), trim);
+            pList->AddTriangleFilled(at(-0.32f, 0.06f), at(-0.44f, 0.09f), at(-0.44f, -0.09f), trim);
+            pList->AddTriangleFilled(at(-0.32f, 0.06f), at(-0.44f, -0.09f), at(-0.32f, -0.06f), trim);
+            pList->AddLine(at(0.3f, 0.1f), at(0.3f, -0.1f), trim, 1.5f);
         }
 
         // Thousands split with commas, as in 5,724
@@ -827,6 +942,8 @@ namespace tenth
         drawClock();
         drawInstruments();
         drawSas();
+        drawSasSwitch();
+        drawSasControl();
         drawOrbit();
         drawGForce();
         drawStageStack();
@@ -1003,7 +1120,7 @@ namespace tenth
             ImVec2 at;
             if (mRocket.holdDirection(mode, toward) && onBall(toward, at))
             {
-                drawMarker(pList, mode, at, 7.0f, markerColor(mode));
+                drawMarker(pList, mode, at, MARKER_SIZE, markerColor(mode));
             }
         }
 
@@ -1030,29 +1147,31 @@ namespace tenth
         double heading = std::atan2(facing.dot(here.east), facing.dot(north)) / degree;
         heading = heading < 0.0 ? heading + 360.0 : heading;
 
-        // The heading tape runs round the top of the ring, centred on where the nose points
-        const double span = 60.0; // degrees of heading shown either side of the middle
-        const float sweep = PI * 0.32f;
+        // Three tapes share the ring: heading round the top, speed up the left, and altitude up the right
+        auto whole = [](double mark)
+        {
+            char label[16];
+            std::snprintf(label, sizeof(label), "%.0f", mark);
+            return std::string(label);
+        };
         if (hasHeading)
         {
-            for (int mark = (int)std::ceil((heading - span) / 10.0) * 10; mark <= heading + span; mark += 10)
-            {
-                const float angle = -PI * 0.5f + (float)((mark - heading) / span) * sweep;
-                const float c = std::cos(angle);
-                const float s = std::sin(angle);
-                const bool major = (mark % 30 + 30) % 30 == 0;
-                const float length = major ? 8.0f : 5.0f;
-                pList->AddLine(offset(centre, c * (radius + 3.0f), s * (radius + 3.0f)), offset(centre, c * (radius + 3.0f + length), s * (radius + 3.0f + length)),
-                               major ? HUD_TEXT : HUD_MUTED, 1.5f);
-                // The label under the heading box would hide behind its pointer
-                if (major && std::abs(mark - heading) > 8.0)
-                {
-                    char label[8];
-                    std::snprintf(label, sizeof(label), "%d", (mark % 360 + 360) % 360);
-                    textCentred(pList, offset(centre, c * (radius + 18.0f), s * (radius + 18.0f)), 10.0f, HUD_MUTED, label);
-                }
-            }
+            drawTape(pList, centre, radius, -PI * 0.5f, HEADING_SWEEP, heading, 20.0, 2, -1.0e9,
+                     [&](double mark)
+                     {
+                         // The label under the heading box would hide behind its pointer
+                         return std::abs(mark - heading) > 8.0 ? whole(std::fmod(std::fmod(mark, 360.0) + 360.0, 360.0)) : std::string();
+                     });
         }
+        const double speedNow = mRocket.velocity().length();
+        const double heightNow = std::max(0.0, mRocket.altitude(mSolarSystem));
+        drawTape(pList, centre, radius, PI, SIDE_SWEEP, speedNow, tapeStep(speedNow), 5, 0.0, whole);
+        const double heightStep = tapeStep(heightNow);
+        drawTape(pList, centre, radius, 0.0f, -SIDE_SWEEP, heightNow, heightStep, 5, 0.0,
+                 [&](double mark)
+                 {
+                     return heightStep >= 1000.0 ? whole(mark / 1000.0) + "k" : whole(mark);
+                 });
         char value[32];
         const ImVec2 headingMin = offset(centre, -32.0f, -NAVBALL_BEZEL - 24.0f);
         const ImVec2 headingMax = offset(centre, 32.0f, -NAVBALL_BEZEL + 6.0f);
@@ -1138,68 +1257,171 @@ namespace tenth
         sideBox(pList, offset(centre, -100.0f, 0.0f), HUD_YELLOW, "SURFACE", value, "m/s");
         const char* unit = "m";
         writeHeight(value, sizeof(value), std::max(0.0, mRocket.altitude(mSolarSystem)), unit);
-        sideBox(pList, offset(centre, 100.0f, 0.0f), HUD_PINK, "ALTITUDE", value, unit);
+        const double atmosphere = mSolarSystem.body(mRocket.reference()).atmosphereHeight;
+        const float air = atmosphere > 0.0 ? (float)(mRocket.altitude(mSolarSystem) / atmosphere) : 1.0f;
+        sideBox(pList, offset(centre, 100.0f, 0.0f), HUD_PINK, "ALTITUDE", value, unit, air);
         ImGui::End();
     }
 
-    // Right of the navball: the SAS switch in the middle of a ring of the modes it can hold, each opposite its
-    // reverse. Modes that can't be worked out right now are dimmed.
+    // Right of the navball: a ring of the six orbit directions the SAS can hold, each opposite its reverse, round a
+    // rocket that turns to point at the chosen one. Directions that can't be worked out right now are dimmed.
     void FlightScene::drawSas()
     {
-        const ImVec2 centre = offset(navballCentre(), SAS_DIAL_GAP, 20.0f);
+        const ImVec2 centre = offset(navballCentre(), SAS_DIAL_OFFSET.x, SAS_DIAL_OFFSET.y);
         const ImVec2 min = offset(centre, -SAS_DIAL_RADIUS, -SAS_DIAL_RADIUS);
         const float size = SAS_DIAL_RADIUS * 2.0f;
         ImGui::SetNextWindowPos(min, ImGuiCond_Always);
-        ImGui::SetNextWindowSize({ size, size + 22.0f }, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({ size, size }, ImGuiCond_Always);
         ImGui::Begin("SAS", nullptr, OVERLAY_FLAGS);
         ImDrawList* pList = ImGui::GetWindowDrawList();
-        const bool on = mRocket.sas() != SasMode::Off;
+        const SasMode chosen = mRocket.sas();
+        const bool on = chosen != SasMode::Off;
         pList->AddCircleFilled(centre, SAS_DIAL_RADIUS, HUD_PANEL, 64);
-        pList->AddCircle(centre, SAS_DIAL_RADIUS, on ? HUD_GREEN : HUD_EDGE, 64, 1.5f);
-
-        // A round button that shows a tooltip on hover; returns whether it was clicked
-        auto button = [&](const char* id, ImVec2 at, float radius, const char* tip)
-        {
-            ImGui::SetCursorScreenPos(offset(at, -radius, -radius));
-            const bool clicked = ImGui::InvisibleButton(id, { radius * 2.0f, radius * 2.0f });
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("%s", tip);
-            }
-            return clicked;
-        };
+        pList->AddCircle(centre, SAS_DIAL_RADIUS, HUD_EDGE, 64, 1.5f);
+        pList->AddCircle(centre, SAS_RING, HUD_DIM, 64, 1.0f);
 
         struct Slot
         {
             SasMode mode;
             float angle; // round the ring from the right, downward
         };
-        const Slot slots[] = { { SasMode::Stability, -PI * 0.5f }, { SasMode::Prograde, -PI * 0.25f }, { SasMode::Retrograde, PI * 0.75f },
-                               { SasMode::Normal, 0.0f },          { SasMode::AntiNormal, PI },      { SasMode::RadialOut, PI * 0.25f },
-                               { SasMode::RadialIn, -PI * 0.75f } };
+        const Slot slots[] = { { SasMode::Prograde, -PI * 0.5f },       { SasMode::Retrograde, PI * 0.5f }, { SasMode::RadialOut, -PI / 6.0f },
+                               { SasMode::RadialIn, PI * 5.0f / 6.0f }, { SasMode::Normal, -PI * 5.0f / 6.0f }, { SasMode::AntiNormal, PI / 6.0f } };
+        float pointTo = -PI * 0.5f;
         for (const Slot& slot : slots)
         {
             const ImVec2 at = offset(centre, std::cos(slot.angle) * SAS_RING, std::sin(slot.angle) * SAS_RING);
             Vec3d toward;
             const bool available = mRocket.holdDirection(slot.mode, toward);
-            const bool chosen = mRocket.sas() == slot.mode;
-            pList->AddCircleFilled(at, SAS_BUTTON, chosen ? IM_COL32(40, 90, 55, 255) : HUD_BOX, 24);
-            pList->AddCircle(at, SAS_BUTTON, chosen ? HUD_GREEN : HUD_DIM, 24, 1.5f);
-            drawMarker(pList, slot.mode, at, 6.0f, available ? markerColor(slot.mode) : HUD_DIM);
-            if (button(modeName(slot.mode), at, SAS_BUTTON, modeName(slot.mode)) && available)
+            const bool picked = chosen == slot.mode;
+            if (picked)
+            {
+                pointTo = slot.angle;
+            }
+            pList->AddCircleFilled(at, SAS_BUTTON, picked ? IM_COL32(30, 70, 45, 255) : HUD_BOX, 24);
+            pList->AddCircle(at, SAS_BUTTON, picked ? HUD_GREEN : HUD_DIM, 24, picked ? 2.0f : 1.5f);
+            drawMarker(pList, slot.mode, at, MARKER_SIZE, available ? markerColor(slot.mode) : HUD_DIM);
+            ImGui::SetCursorScreenPos(offset(at, -SAS_BUTTON, -SAS_BUTTON));
+            if (ImGui::InvisibleButton(modeName(slot.mode), { SAS_BUTTON * 2.0f, SAS_BUTTON * 2.0f }) && available)
             {
                 mRocket.setSas(slot.mode);
             }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", modeName(slot.mode));
+            }
         }
 
-        pList->AddCircleFilled(centre, SAS_CENTRE_BUTTON, on ? HUD_GO : HUD_BOX, 32);
-        pList->AddCircle(centre, SAS_CENTRE_BUTTON, on ? HUD_GO_EDGE : HUD_EDGE, 32, 1.5f);
-        textCentred(pList, centre, 15.0f, on ? HUD_GO_INK : HUD_MUTED, "SAS");
-        if (button("sas", centre, SAS_CENTRE_BUTTON, "Hold steady (T)"))
+        // The rocket swings the short way round to its new mode
+        float swing = std::remainder(pointTo - mSasPointer, 2.0f * PI);
+        mSasPointer += swing * std::min(1.0f, GetFrameTime() * SAS_POINTER_EASE);
+        pList->AddCircleFilled(centre, SAS_HUB, HUD_BOX, 48);
+        pList->AddCircle(centre, SAS_HUB, on ? HUD_GREEN : HUD_EDGE, 48, 1.5f);
+        drawPointer(pList, centre, mSasPointer, SAS_HUB * 1.6f, on ? HUD_TEXT : HUD_MUTED, on ? HUD_GREEN : HUD_DIM);
+        ImGui::End();
+    }
+
+    // Under the dial: Stability, and the modes that will aim at a planned maneuver or another craft once those exist
+    void FlightScene::drawSasControl()
+    {
+        const ImVec2 dial = offset(navballCentre(), SAS_DIAL_OFFSET.x, SAS_DIAL_OFFSET.y);
+        const ImVec2 min = { dial.x - SAS_TAB_SIZE.x * 0.5f, dial.y + SAS_DIAL_RADIUS + 6.0f };
+        const ImVec2 max = offset(min, SAS_TAB_SIZE.x, SAS_TAB_SIZE.y);
+        ImGui::SetNextWindowPos(min, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(SAS_TAB_SIZE, ImGuiCond_Always);
+        ImGui::Begin("SAS control", nullptr, OVERLAY_FLAGS);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        const SasMode chosen = mRocket.sas();
+        panel(pList, min, max, HUD_EDGE);
+        caption(pList, min, max, chosen != SasMode::Off ? modeName(chosen) : "SAS OFF");
+
+        // The symbols for aiming at a maneuver or another craft, drawn here since those aren't modes yet
+        auto maneuver = [&](ImVec2 at, ImU32 color)
+        {
+            pList->AddCircle(at, 6.0f, color, 20, 2.0f);
+            for (float angle : { -PI * 0.5f, PI / 6.0f, PI * 5.0f / 6.0f })
+            {
+                pList->AddLine(offset(at, std::cos(angle) * 6.0f, std::sin(angle) * 6.0f), offset(at, std::cos(angle) * 11.0f, std::sin(angle) * 11.0f), color, 3.0f);
+            }
+        };
+        auto target = [&](ImVec2 at, ImU32 color, bool away)
+        {
+            pList->AddCircle(at, 6.0f, color, 20, 2.0f);
+            if (away)
+            {
+                pList->AddLine(offset(at, -4.0f, -4.0f), offset(at, 4.0f, 4.0f), color, 2.0f);
+                pList->AddLine(offset(at, -4.0f, 4.0f), offset(at, 4.0f, -4.0f), color, 2.0f);
+            }
+            else
+            {
+                pList->AddCircleFilled(at, 2.0f, color);
+            }
+            for (int side = 0; side < 4; side++)
+            {
+                const float angle = PI * 0.5f * side + (away ? PI * 0.25f : 0.0f);
+                pList->AddLine(offset(at, std::cos(angle) * 8.0f, std::sin(angle) * 8.0f), offset(at, std::cos(angle) * 11.0f, std::sin(angle) * 11.0f), color, 2.0f);
+            }
+        };
+
+        const char* tips[] = { "Stability: hold the current heading", "Maneuver: needs a planned maneuver", "Target: needs a target",
+                               "Anti-target: needs a target" };
+        const float width = (SAS_TAB_SIZE.x - 16.0f) / 4.0f;
+        for (int i = 0; i < 4; i++)
+        {
+            const ImVec2 at = { min.x + 8.0f + width * (i + 0.5f), min.y + 19.0f };
+            const bool picked = i == 0 && chosen == SasMode::Stability;
+            pList->AddRectFilled(offset(at, -width * 0.5f + 2.0f, -14.0f), offset(at, width * 0.5f - 2.0f, 14.0f), picked ? IM_COL32(30, 70, 45, 255) : HUD_BOX, 4.0f);
+            pList->AddRect(offset(at, -width * 0.5f + 2.0f, -14.0f), offset(at, width * 0.5f - 2.0f, 14.0f), picked ? HUD_GREEN : HUD_DIM, 4.0f, 0, picked ? 2.0f : 1.0f);
+            if (i == 0)
+            {
+                drawMarker(pList, SasMode::Stability, at, MARKER_SIZE, HUD_GREEN);
+            }
+            else if (i == 1)
+            {
+                maneuver(at, HUD_DIM);
+            }
+            else
+            {
+                target(at, HUD_DIM, i == 3);
+            }
+            ImGui::SetCursorScreenPos(offset(at, -width * 0.5f + 2.0f, -14.0f));
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("mode", { width - 4.0f, 28.0f }) && i == 0)
+            {
+                mRocket.setSas(SasMode::Stability);
+            }
+            ImGui::PopID();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", tips[i]);
+            }
+        }
+        ImGui::End();
+    }
+
+    // The SAS's on and off button, set into the navball's ring
+    void FlightScene::drawSasSwitch()
+    {
+        const ImVec2 navball = navballCentre();
+        const float ring = (NAVBALL_RADIUS + NAVBALL_BEZEL) * 0.5f;
+        const ImVec2 centre = offset(navball, std::cos(SAS_SWITCH_ANGLE) * ring, std::sin(SAS_SWITCH_ANGLE) * ring);
+        ImGui::SetNextWindowPos(offset(centre, -SAS_SWITCH, -SAS_SWITCH), ImGuiCond_Always);
+        ImGui::SetNextWindowSize({ SAS_SWITCH * 2.0f, SAS_SWITCH * 2.0f }, ImGuiCond_Always);
+        ImGui::Begin("SAS switch", nullptr, OVERLAY_FLAGS);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        const bool on = mRocket.sas() != SasMode::Off;
+        pList->AddCircleFilled(centre, SAS_SWITCH, on ? HUD_GO : HUD_BOX, 32);
+        pList->AddCircle(centre, SAS_SWITCH, on ? HUD_GO_EDGE : HUD_EDGE, 32, 1.5f);
+        textCentred(pList, centre, 11.0f, on ? HUD_GO_INK : HUD_MUTED, "SAS");
+        ImGui::SetCursorScreenPos(offset(centre, -SAS_SWITCH, -SAS_SWITCH));
+        if (ImGui::InvisibleButton("sas", { SAS_SWITCH * 2.0f, SAS_SWITCH * 2.0f }))
         {
             mRocket.setSas(on ? SasMode::Off : SasMode::Stability);
         }
-        textCentred(pList, { centre.x, centre.y + SAS_DIAL_RADIUS + 11.0f }, 12.0f, on ? HUD_GREEN : HUD_MUTED, on ? modeName(mRocket.sas()) : "SAS off");
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("SAS on or off (T)");
+        }
         ImGui::End();
     }
 
