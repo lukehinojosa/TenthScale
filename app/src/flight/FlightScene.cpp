@@ -773,7 +773,9 @@ namespace tenth
         mOrbit.focus = mFocus;
         mOrbit.minFocusHeight = mFocus.y;
         mOrbit.maxFocusHeight = mFocus.y;
-        mOrbit.minCameraHeight = toScene(mPad.origin).y + 0.5f;
+        // The ground right under the rocket, since far downrange the planet curves away below the pad's level
+        const double radius = mSolarSystem.body(mRocket.reference()).radius;
+        mOrbit.minCameraHeight = toScene(mRocket.position().normalized() * radius).y + 0.5f;
         if (mZoomTarget > 0.0f)
         {
             mOrbit.distance += (mZoomTarget - mOrbit.distance) * follow;

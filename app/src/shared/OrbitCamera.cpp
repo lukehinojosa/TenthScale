@@ -57,7 +57,9 @@ namespace tenth
         // The tilt that would put the camera at the floor or ceiling height becomes the limit
         const float lowest = std::asin(std::clamp((minCameraHeight - focus.y) / distance, -1.0f, 1.0f));
         const float highest = std::asin(std::clamp((maxCameraHeight - focus.y) / distance, -1.0f, 1.0f));
-        pitch = std::clamp(pitch, std::max(minPitch, lowest), std::min(maxPitch, highest));
+        // A floor so high that even looking straight down can't clear it leaves the steepest tilt allowed
+        const float ceiling = std::min(maxPitch, highest);
+        pitch = std::clamp(pitch, std::min(std::max(minPitch, lowest), ceiling), ceiling);
         apply(camera);
     }
 

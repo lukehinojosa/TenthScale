@@ -120,7 +120,7 @@ namespace tenth
         lifter.description = "Strong at sea level. Gets a rocket off the pad.";
         catalog.add(lifter);
 
-        PartDefinition heavy = engine("engine-heavy", "Heavy Lifter Engine", 2.0, 2000.0, 460000.0, 300.0, 265.0, 6.0);
+        PartDefinition heavy = engine("engine-heavy", "Heavy Lifter Engine", 2.0, 2000.0, 560000.0, 300.0, 265.0, 6.0);
         heavy.description = "Huge thrust for the first stage of a big rocket. Thirsty, and too heavy to carry any higher.";
         catalog.add(heavy);
 
