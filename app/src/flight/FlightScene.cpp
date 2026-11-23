@@ -1264,7 +1264,7 @@ namespace tenth
     }
 
     // Right of the navball: a ring of the six orbit directions the SAS can hold, each opposite its reverse, round a
-    // rocket that turns to point at the chosen one. Directions that can't be worked out right now are dimmed.
+    // rocket that turns to point at the chosen one.
     void FlightScene::drawSas()
     {
         const ImVec2 centre = offset(navballCentre(), SAS_DIAL_OFFSET.x, SAS_DIAL_OFFSET.y);
@@ -1291,8 +1291,6 @@ namespace tenth
         for (const Slot& slot : slots)
         {
             const ImVec2 at = offset(centre, std::cos(slot.angle) * SAS_RING, std::sin(slot.angle) * SAS_RING);
-            Vec3d toward;
-            const bool available = mRocket.holdDirection(slot.mode, toward);
             const bool picked = chosen == slot.mode;
             if (picked)
             {
@@ -1300,9 +1298,9 @@ namespace tenth
             }
             pList->AddCircleFilled(at, SAS_BUTTON, picked ? IM_COL32(30, 70, 45, 255) : HUD_BOX, 24);
             pList->AddCircle(at, SAS_BUTTON, picked ? HUD_GREEN : HUD_DIM, 24, picked ? 2.0f : 1.5f);
-            drawMarker(pList, slot.mode, at, MARKER_SIZE, available ? markerColor(slot.mode) : HUD_DIM);
+            drawMarker(pList, slot.mode, at, MARKER_SIZE, markerColor(slot.mode));
             ImGui::SetCursorScreenPos(offset(at, -SAS_BUTTON, -SAS_BUTTON));
-            if (ImGui::InvisibleButton(modeName(slot.mode), { SAS_BUTTON * 2.0f, SAS_BUTTON * 2.0f }) && available)
+            if (ImGui::InvisibleButton(modeName(slot.mode), { SAS_BUTTON * 2.0f, SAS_BUTTON * 2.0f }))
             {
                 mRocket.setSas(slot.mode);
             }

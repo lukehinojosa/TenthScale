@@ -70,8 +70,8 @@ namespace tenth
         void setSas(SasMode mode);
         SasMode sas() const { return mSas; }
 
-        // Where a mode would point the nose, in the reference body's axes. False when it can't be worked out, such
-        // as prograde while standing still.
+        // Where a mode would point the nose, in the reference body's axes; false only with the SAS off. Standing
+        // still, prograde is up; climbing straight up, normal is square to the way the rocket faces across.
         bool holdDirection(SasMode mode, Vec3d& direction) const;
 
         // Fires the next stage: lights its engines, opens its parachutes, and lets go of whatever its decouplers
@@ -126,6 +126,9 @@ namespace tenth
 
     private:
         void updateReference(const SolarSystem& system, double time);
+
+        // Follows the path and the orbit's plane for the SAS, easing round where the motion leaves them unclear
+        void updateCourse(double dt);
         void pushWithEngines();
         void steerWithSas();
 
@@ -172,6 +175,8 @@ namespace tenth
         SasMode mSas = SasMode::Off;
         Vec3d mHold{ 0.0, 1.0, 0.0 }; // where Stability keeps the nose
         bool mSettling = false; // Stability follows the nose until the pilot's turn has died away
+        Vec3d mPath{ 0.0, 1.0, 0.0 }; // prograde
+        Vec3d mPlane{ 0.0, 0.0, 1.0 }; // normal: square to the path, along the orbit's turn
         std::vector<Rocket> mDropped;
         std::vector<Separation> mSeparations;
     };

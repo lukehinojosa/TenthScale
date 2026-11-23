@@ -21,7 +21,29 @@ namespace tenth
         constexpr double SAS_BRAKING = 0.5; // share of its full authority the SAS plans on stopping with
         constexpr double SAS_APPROACH = 1.0; // seconds to close what's left of a small error
         constexpr double SETTLED_RATE = 0.005; // radians per second below which a turn counts as stopped
-        constexpr double MIN_SPEED = 0.5; // metres per second below which there's no telling which way it moves
+        constexpr double PATH_SPEED = 2.0; // metres per second from which prograde follows the motion fully
+        constexpr double PATH_RATE = 0.5; // radians per second prograde can swing at, when moving that fast or more
+        constexpr double CLEAR_SIDEWAYS = 0.1; // share of the motion that's sideways once the orbit's plane is clear
+        constexpr double PLANE_RATE = 0.3; // radians per second the orbit's plane can swing at, once it's clear
+
+        // Turns from toward to by at most the given angle. Pointing opposite ways, it turns about hint.
+        Vec3d turnToward(const Vec3d& from, const Vec3d& to, double most, const Vec3d& hint)
+        {
+            const double angle = std::acos(std::clamp(from.dot(to), -1.0, 1.0));
+            if (angle <= most)
+            {
+                return to;
+            }
+            Vec3d axis = from.cross(to);
+            if (axis.lengthSquared() < 1e-18)
+            {
+                axis = hint;
+            }
+            axis = axis.normalized();
+            const double c = std::cos(most);
+            const double s = std::sin(most);
+            return (from * c + axis.cross(from) * s + axis * (axis.dot(from) * (1.0 - c))).normalized();
+        }
 
         cyclone::Vector3 toCyclone(const Vec3d& v)
         {
@@ -83,6 +105,42 @@ namespace tenth
         mOnGround = false;
         mClimbRate = 0.0;
         mDropped.clear();
+
+        // Standing still the path is up, and the orbit's plane is the one an eastward climb would make, the way D
+        // tips the rocket on the pad
+        mPath = upright.up;
+        mPlane = upright.up.cross(upright.east).normalized();
+        updateCourse(1.0e9);
+    }
+
+    // Each eases toward what the motion says as the motion makes it clear, and otherwise keeps its last direction,
+    // so neither ever jumps
+    void Rocket::updateCourse(double dt)
+    {
+        const Vec3d up = position().normalized();
+        const Vec3d along = velocity();
+        const double speed = along.length();
+        if (speed > 0.0)
+        {
+            const double sure = std::clamp(speed / PATH_SPEED, 0.0, 1.0);
+            mPath = turnToward(mPath, along / speed, sure * PATH_RATE * dt, up.cross(mPath).lengthSquared() > 1e-12 ? up.cross(mPath) : mPlane);
+        }
+
+        // Keep the plane square to the path, then ease it toward the plane the motion lies in
+        Vec3d plane = mPlane - mPath * mPlane.dot(mPath);
+        if (plane.lengthSquared() < 1e-12)
+        {
+            plane = mPath.cross(up).lengthSquared() > 1e-12 ? mPath.cross(up) : mPath.cross({ 1.0, 0.0, 0.0 });
+        }
+        plane = plane.normalized();
+        const Vec3d square = position().cross(along);
+        const double sideways = speed > 0.0 ? square.length() / (position().length() * speed) : 0.0;
+        if (sideways > 0.0)
+        {
+            const double sure = std::clamp(sideways / CLEAR_SIDEWAYS, 0.0, 1.0);
+            plane = turnToward(plane, square.normalized(), sure * PLANE_RATE * dt, mPath);
+        }
+        mPlane = plane;
     }
 
     void Rocket::setVehicle(const Vehicle& vehicle)
@@ -129,33 +187,33 @@ namespace tenth
 
     bool Rocket::holdDirection(SasMode mode, Vec3d& direction) const
     {
-        const Vec3d along = velocity();
-        const Vec3d square = position().cross(along);
-        const bool moving = along.length() > MIN_SPEED;
-        const bool orbiting = moving && square.length() > MIN_SPEED * position().length();
         switch (mode)
         {
         case SasMode::Off:
             return false;
         case SasMode::Stability:
             direction = mHold;
-            return true;
+            break;
         case SasMode::Prograde:
+            direction = mPath;
+            break;
         case SasMode::Retrograde:
-            direction = along.normalized() * (mode == SasMode::Prograde ? 1.0 : -1.0);
-            return moving;
+            direction = -mPath;
+            break;
         case SasMode::Normal:
+            direction = mPlane;
+            break;
         case SasMode::AntiNormal:
-            direction = square.normalized() * (mode == SasMode::Normal ? 1.0 : -1.0);
-            return orbiting;
+            direction = -mPlane;
+            break;
         case SasMode::RadialOut:
+            direction = mPath.cross(mPlane).normalized();
+            break;
         case SasMode::RadialIn:
-            // Rising or falling straight up and down, the way away from the body is simply up
-            direction = orbiting ? along.cross(square).normalized() : position().normalized();
-            direction = direction * (mode == SasMode::RadialOut ? 1.0 : -1.0);
-            return true;
+            direction = mPlane.cross(mPath).normalized();
+            break;
         }
-        return false;
+        return true;
     }
 
     std::vector<PartIndex> Rocket::fireNextStage()
@@ -362,6 +420,7 @@ namespace tenth
     void Rocket::step(double dt, const SolarSystem& system, double time)
     {
         updateReference(system, time);
+        updateCourse(dt);
 
         // Gravity pulls every part equally, so it's an acceleration of the whole rocket rather than a force on it
         const Vec3d offset = position();
@@ -554,6 +613,7 @@ namespace tenth
         {
             return;
         }
+        Vec3d target;
         const Vec3d nose = toWorld({ 0.0, 1.0, 0.0 });
         const Vec3d turning = toLocal(spin());
         if (mSas == SasMode::Stability)
@@ -566,11 +626,7 @@ namespace tenth
                 mHold = nose;
             }
         }
-        Vec3d target;
-        if (!holdDirection(mSas, target))
-        {
-            target = nose;
-        }
+        holdDirection(mSas, target);
 
         // The turn that would carry the nose onto the target, as an axis in the rocket's own axes scaled by the angle
         const Vec3d local = toLocal(target);

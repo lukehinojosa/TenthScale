@@ -93,18 +93,27 @@ TEST_CASE("The orbit's directions: prograde along the motion, normal square to t
     CHECK(degreesBetween(direction, -opposite) < 1e-6);
 }
 
-TEST_CASE("Standing still there's no prograde or normal, but radial out is still up")
+TEST_CASE("Standing still, every mode still has a direction: prograde up, and normal north as for an eastward climb")
 {
     CircularSolarSystem system;
     const BodyId earth = system.findBody("Earth");
+    const double radius = system.body(earth).radius + 100.0e3;
     Rocket rocket;
     rocket.setVehicle(makeVehicle(twoStageRocket(catalog())));
-    rocket.place(earth, { system.body(earth).radius + 100.0e3, 0.0, 0.0 }, {});
+    rocket.place(earth, { radius, 0.0, 0.0 }, {});
     Vec3d direction;
-    CHECK_FALSE(rocket.holdDirection(SasMode::Prograde, direction));
-    CHECK_FALSE(rocket.holdDirection(SasMode::Normal, direction));
-    REQUIRE(rocket.holdDirection(SasMode::RadialOut, direction));
+    REQUIRE(rocket.holdDirection(SasMode::Prograde, direction));
     CHECK(direction.x == doctest::Approx(1.0));
+    REQUIRE(rocket.holdDirection(SasMode::Normal, direction));
+    CHECK(direction.y == doctest::Approx(1.0));
+    REQUIRE(rocket.holdDirection(SasMode::RadialOut, direction));
+    CHECK(direction.z == doctest::Approx(1.0));
+
+    // Ten degrees off vertical, radial out lies square to the path: pointing back, ten degrees above the horizon
+    rocket.place(earth, { radius, 0.0, 0.0 }, { 200.0 * std::cos(0.1745), 0.0, -200.0 * std::sin(0.1745) });
+    REQUIRE(rocket.holdDirection(SasMode::RadialOut, direction));
+    CHECK(direction.x == doctest::Approx(std::sin(0.1745)));
+    CHECK(direction.z == doctest::Approx(std::cos(0.1745)));
 }
 
 TEST_CASE("A lit engine adds to the wheels' pitch and yaw, but only the wheels roll")
@@ -205,4 +214,82 @@ TEST_CASE("A dropped stage comes away with its SAS off")
         CHECK(piece.sas() == SasMode::Off);
     }
     CHECK(test.rocket.sas() == SasMode::Stability);
+}
+
+namespace
+{
+    // Taps pitch for a moment while a mode holds, then returns how far the nose swung past the target on the way
+    // back and how long it took to settle within a degree, in degrees and seconds
+    void tapAndRecover(OrbitTest& test, SasMode mode, double tap, double& overshoot, double& settled)
+    {
+        test.run(10.0);
+        test.rocket.setSteering({ 1.0, 0.0, 0.0 });
+        test.run(tap);
+        test.rocket.setSteering({});
+        overshoot = 0.0;
+        settled = -1.0;
+        for (int i = 1; i <= 50 * 15; i++)
+        {
+            test.run(1.0 / 50.0);
+            Vec3d target;
+            REQUIRE(test.rocket.holdDirection(mode, target));
+            const Vec3d local = test.rocket.toLocal(target);
+            overshoot = std::max(overshoot, std::atan2(local.z, local.y) * 180.0 / 3.14159265358979);
+            if (test.offTarget(mode) > 1.0)
+            {
+                settled = -1.0;
+            }
+            else if (settled < 0.0)
+            {
+                settled = i / 50.0;
+            }
+        }
+    }
+}
+
+TEST_CASE("Knocked off its direction by a tap of pitch, the SAS brings the nose back without swinging past")
+{
+    for (bool burning : { false, true })
+    {
+        CAPTURE(burning);
+        OrbitTest test;
+        if (burning)
+        {
+            test.rocket.fireNextStage();
+        }
+        test.rocket.setSas(SasMode::RadialOut);
+        double overshoot = 0.0;
+        double settled = 0.0;
+        tapAndRecover(test, SasMode::RadialOut, burning ? 0.5 : 1.0, overshoot, settled);
+        CHECK(overshoot < 0.5);
+        CHECK(settled > 0.0);
+        CHECK(settled < 5.0);
+    }
+}
+
+TEST_CASE("Climbing straight up, a tap of pitch eases normal and radial round instead of throwing them")
+{
+    for (SasMode mode : { SasMode::Normal, SasMode::RadialOut, SasMode::RadialIn })
+    {
+        CAPTURE((int)mode);
+        OrbitTest test;
+        test.rocket.place(test.earth, test.rocket.position(), test.rocket.position().normalized() * 200.0);
+        test.rocket.fireNextStage();
+        test.rocket.setSas(mode);
+        test.run(5.0);
+        Vec3d last;
+        REQUIRE(test.rocket.holdDirection(mode, last));
+        double worst = 0.0;
+        for (int i = 0; i < 50 * 10; i++)
+        {
+            test.rocket.setSteering(i < 25 ? Vec3d{ 1.0, 0.0, 0.0 } : Vec3d{});
+            test.run(1.0 / 50.0);
+            Vec3d now;
+            REQUIRE(test.rocket.holdDirection(mode, now));
+            worst = std::max(worst, degreesBetween(now, last));
+            last = now;
+        }
+        CHECK(test.rocket.sas() == mode);
+        CHECK(worst < 1.0);
+    }
 }
