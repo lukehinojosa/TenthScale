@@ -43,6 +43,8 @@ namespace tenth
 
     namespace
     {
+        constexpr double POD_WHEEL_TORQUE = 20000.0; // slow to swing a full stack, so the engines will need to help
+
         PartDefinition roundPart(const char* id, const char* name, PartCategory category, double height, double topDiameter,
                                  double bottomDiameter, double dryMass)
         {
@@ -102,6 +104,7 @@ namespace tenth
 
         PartDefinition pod = roundPart("pod", "Command Pod", PartCategory::Pod, 1.0, 0.6, 1.25, 800.0);
         pod.hasParachute = true;
+        pod.wheelTorque = POD_WHEEL_TORQUE;
         pod.description = "Seats the crew, steers with its reaction wheels, and carries a parachute for landing on Earth. "
                           "Every rocket is built around one.";
         catalog.add(pod);

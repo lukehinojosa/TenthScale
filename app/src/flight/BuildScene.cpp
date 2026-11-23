@@ -79,6 +79,10 @@ namespace tenth
             {
                 ImGui::TextUnformatted("Pops off at peak altitude");
             }
+            if (part.wheelTorque > 0.0)
+            {
+                ImGui::Text("Reaction wheels: %.0f kN m", part.wheelTorque / 1000.0);
+            }
             if (part.isEngine())
             {
                 ImGui::Text("Thrust: %.0f kN in vacuum", part.thrustVacuum / 1000.0);

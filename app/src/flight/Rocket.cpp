@@ -106,6 +106,11 @@ namespace tenth
         mVehicle.throttle = std::clamp(throttle, 0.0, 1.0);
     }
 
+    void Rocket::setSteering(const Vec3d& steering)
+    {
+        mVehicle.steering = { std::clamp(steering.x, -1.0, 1.0), std::clamp(steering.y, -1.0, 1.0), std::clamp(steering.z, -1.0, 1.0) };
+    }
+
     std::vector<PartIndex> Rocket::fireNextStage()
     {
         const int stage = mVehicle.nextStage;
@@ -321,6 +326,7 @@ namespace tenth
         const double height = offset.length() - system.body(mReference).radius;
         mPressure = pressureRatio(system.body(mReference), height);
         pushWithEngines();
+        turnWithWheels();
         pushWithAir(airDensity(system.body(mReference), height), dt);
         mBody.integrate(dt);
 
@@ -484,6 +490,15 @@ namespace tenth
             const double thrust = engineOutput(*placed.pDefinition, mPressure).thrust * mVehicle.throttle;
             mBody.addForceAtBodyPoint(toCyclone(toWorld({ 0.0, thrust, 0.0 })), toCyclone(placed.position - mVehicle.centerOfMass));
             mThrust += thrust;
+        }
+    }
+
+    void Rocket::turnWithWheels()
+    {
+        const Vec3d torque = mVehicle.steering * wheelTorque(mVehicle);
+        if (torque.lengthSquared() > 0.0)
+        {
+            mBody.addTorque(toCyclone(toWorld(torque)));
         }
     }
 

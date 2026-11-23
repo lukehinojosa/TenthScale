@@ -47,6 +47,7 @@ namespace tenth
         double thrustVacuum = 0.0; // engines only
         double ispVacuum = 0.0; // engines only: specific impulse in vacuum
         double ispSeaLevel = 0.0; // engines only: specific impulse at sea level, lower because of air pressure
+        double wheelTorque = 0.0; // newton metres its reaction wheels can turn the rocket with, about each axis
 
         bool separates = false; // decouplers split the rocket into stages here
         bool hasParachute = false; // pods carry one built in, for a soft landing back on Earth

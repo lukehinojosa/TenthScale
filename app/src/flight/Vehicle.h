@@ -31,6 +31,7 @@ namespace tenth
         std::vector<double> canopy; // how far each released parachute has filled, 0 to 1
         std::vector<PartIndex> sections; // the part starting each part's section, whose tanks its engines draw from
         double throttle = 1.0; // 0 to 1, shared by every lit engine
+        Vec3d steering; // how hard the pilot is turning it about each of its own axes, -1 to 1
         int nextStage = 0; // the stage the next press of the staging key fires
 
         double mass = 0.0; // kg
@@ -70,6 +71,9 @@ namespace tenth
     // Takes the part and everything attached through it off as a vehicle of its own, each part keeping its fuel and
     // lit engines. rootOffset is where the new vehicle's root sat in this one's design, before the split.
     Vehicle detachBranch(Vehicle& vehicle, PartIndex index, Vec3d& rootOffset);
+
+    // What all its reaction wheels together can turn it with about each axis, in newton metres
+    double wheelTorque(const Vehicle& vehicle);
 
     double sectionFuel(const Vehicle& vehicle, PartIndex section);
     double sectionCapacity(const Vehicle& vehicle, PartIndex section);

@@ -24,6 +24,7 @@ namespace tenth
         float orbitSensitivity = 0.006f; // radians per pixel
         float zoomStep = 0.12f; // share of the distance per wheel notch
         float liftSpeed = 0.6f; // share of the distance per second with W/S
+        bool liftWithKeys = true; // off where W/S are needed for something else
 
         // Pixels panels cover on each side, so the focus shows in the middle of what's left of the screen
         float leftInset = 0.0f;

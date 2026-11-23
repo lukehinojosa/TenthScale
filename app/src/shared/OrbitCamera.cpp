@@ -45,7 +45,7 @@ namespace tenth
         {
             distance *= std::pow(1.0f - zoomStep, GetMouseWheelMove());
         }
-        if (!imguiOwnsKeyboard)
+        if (liftWithKeys && !imguiOwnsKeyboard)
         {
             const float lift = (float)IsKeyDown(KEY_W) - (float)IsKeyDown(KEY_S);
             focus.y += lift * liftSpeed * distance * dt;

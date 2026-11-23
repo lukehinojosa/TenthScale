@@ -185,6 +185,16 @@ namespace tenth
         return vehicle;
     }
 
+    double wheelTorque(const Vehicle& vehicle)
+    {
+        double total = 0.0;
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            total += vehicle.design.part(i).pDefinition->wheelTorque;
+        }
+        return total;
+    }
+
     Vehicle detachBranch(Vehicle& vehicle, PartIndex index, Vec3d& rootOffset)
     {
         // Parents come first, so one pass in order finds the whole branch; both halves keep their parts in order

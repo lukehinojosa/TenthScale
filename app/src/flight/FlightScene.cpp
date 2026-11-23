@@ -282,6 +282,7 @@ namespace tenth
         : mCamera(camera), mDesign(design), mSolarSystem(solarSystem)
     {
         mOrbit.minPitch = -1.5f;
+        mOrbit.liftWithKeys = false;
         mOrbit.maxDistance = 3000.0f;
     }
 
@@ -525,6 +526,17 @@ namespace tenth
             {
                 stage();
             }
+
+            // W and S pitch it, A and D yaw it, Q and E roll it
+            auto axis = [](KeyboardKey positive, KeyboardKey negative)
+            {
+                return (double)IsKeyDown(positive) - (double)IsKeyDown(negative);
+            };
+            mRocket.setSteering({ axis(KEY_S, KEY_W), axis(KEY_Q, KEY_E), axis(KEY_A, KEY_D) });
+        }
+        else
+        {
+            mRocket.setSteering({});
         }
 
         const Vehicle& vehicle = mRocket.vehicle();
@@ -740,7 +752,7 @@ namespace tenth
                 requestScene(SceneId::Build);
             }
         }
-        ImGui::TextDisabled("Space stage   Shift/Ctrl throttle   Z full   X cut   Right-drag look");
+        ImGui::TextDisabled("Space stage   WASD/QE steer   Shift/Ctrl throttle   Z full   X cut   Right-drag look");
         ImGui::End();
     }
 

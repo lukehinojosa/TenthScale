@@ -44,6 +44,11 @@ namespace tenth
         void setThrottle(double throttle);
         double throttle() const { return mVehicle.throttle; }
 
+        // How hard to turn about each of the rocket's own axes, -1 to 1: pitch about x, roll about y, and yaw about z.
+        // The reaction wheels turn it with that share of their torque, so a heavier rocket turns slower.
+        void setSteering(const Vec3d& steering);
+        const Vec3d& steering() const { return mVehicle.steering; }
+
         // Fires the next stage: lights its engines, opens its parachutes, and lets go of whatever its decouplers
         // hold. Opening a parachute pops off any nose cone still covering it. Returns the parts it fired.
         std::vector<PartIndex> fireNextStage();
@@ -97,6 +102,7 @@ namespace tenth
     private:
         void updateReference(const SolarSystem& system, double time);
         void pushWithEngines();
+        void turnWithWheels();
 
         // Every part, and any open parachute, feels the air from where it is, so fins low down steady the rocket.
         // Released parachutes fill a little more each step while there's air, and fold up again on the ground.
