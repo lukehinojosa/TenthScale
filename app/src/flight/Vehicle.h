@@ -95,6 +95,10 @@ namespace tenth
     // Thinner air lets the exhaust expand more, so the same fuel flow pushes harder and lasts longer
     EngineOutput engineOutput(const PartDefinition& engine, double pressure);
 
+    // Seconds until the first section with burning engines runs dry at the current throttle, counting every engine
+    // drawing from it; infinite when nothing is burning
+    double secondsOfFuel(const Vehicle& vehicle, double pressure);
+
     // Every burning engine draws its fuel flow from the tanks in its section, each emptying at the same pace.
     // Leaves the mass numbers for updateMass.
     void burnFuel(Vehicle& vehicle, double pressure, double dt);

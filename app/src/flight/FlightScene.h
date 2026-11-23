@@ -12,6 +12,7 @@
 #include "flight/Rocket.h"
 #include "flight/RocketDesign.h"
 #include "flight/SurfaceFrame.h"
+#include "flight/TimeWarp.h"
 #include "shared/OrbitCamera.h"
 #include "shared/Scene.h"
 #include "shared/SolarSystem.h"
@@ -43,6 +44,9 @@ namespace tenth
         void drawRocket(const Rocket& rocket) const;
         void drawFlames(const Rocket& rocket) const;
         void drawParachutes(const Rocket& rocket) const;
+
+        // One fixed step of everything that moves; time warp runs several of these per tick
+        void stepPhysics(double dt);
 
         // Steps the dropped pieces and clears away those that have landed and settled or fallen far behind
         void updateDebris(double dt);
@@ -107,6 +111,7 @@ namespace tenth
         double mTime = 0.0;
         double mGForce = 1.0; // the push felt along the rocket, in multiples of Earth's gravity, smoothed
         bool mLaunched = false;
+        TimeWarp mWarp;
         float mSasPointer = -1.5707963f; // where the dial's rocket points, in screen radians, easing toward the mode
 
         double mPreviousNear = 0.0; // the other scenes' clip planes, put back on leaving

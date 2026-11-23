@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 #include "flight/DesignStats.h"
@@ -367,6 +368,29 @@ namespace tenth
         output.isp = engine.ispVacuum + (engine.ispSeaLevel - engine.ispVacuum) * share;
         output.thrust = engine.thrustVacuum * output.isp / engine.ispVacuum;
         return output;
+    }
+
+    double secondsOfFuel(const Vehicle& vehicle, double pressure)
+    {
+        const RocketDesign& design = vehicle.design;
+        std::vector<double> flow(design.partCount(), 0.0);
+        for (PartIndex engine = 0; engine < design.partCount(); engine++)
+        {
+            if (isBurning(vehicle, engine))
+            {
+                const EngineOutput output = engineOutput(*design.part(engine).pDefinition, pressure);
+                flow[vehicle.sections[engine]] += output.thrust * vehicle.throttle / (output.isp * STANDARD_GRAVITY);
+            }
+        }
+        double soonest = std::numeric_limits<double>::infinity();
+        for (PartIndex section = 0; section < design.partCount(); section++)
+        {
+            if (flow[section] > 0.0)
+            {
+                soonest = std::min(soonest, sectionFuel(vehicle, section) / flow[section]);
+            }
+        }
+        return soonest;
     }
 
     void burnFuel(Vehicle& vehicle, double pressure, double dt)

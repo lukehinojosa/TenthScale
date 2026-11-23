@@ -50,6 +50,8 @@ namespace tenth
         constexpr double DEBRIS_SETTLE_TIME = 8.0; // seconds lying still before a dropped piece is cleared away
         constexpr double DEBRIS_RANGE = 40.0e3; // metres from the rocket past which a dropped piece is forgotten
         constexpr double THROTTLE_RATE = 0.5; // share of full throttle per second while Shift or Ctrl is held
+        constexpr double WARP_BUDGET = 0.5; // share of each tick's real time time warp may spend on physics
+        constexpr double FUEL_WARNING = 10.0; // seconds of fuel left in a burning section below which warp holds at 1x
 
         constexpr float HUD_MARGIN = 12.0f;
         constexpr ImU32 HUD_PANEL = IM_COL32(14, 20, 28, 225);
@@ -72,6 +74,10 @@ namespace tenth
         constexpr float ARC_RADIUS = 150.0f; // the throttle and climb rate arcs either side of the ball
         constexpr float ARC_WIDTH = 14.0f;
         constexpr ImVec2 ORBIT_STRIP_SIZE = { 340.0f, 50.0f };
+        constexpr ImVec2 CLOCK_SIZE = { 300.0f, 80.0f };
+        constexpr float PAUSE_RADIUS = 15.0f;
+        constexpr float WARP_ARROW = 7.0f; // half the height of each time warp arrow
+        constexpr float WARP_SPACING = 21.0f;
         constexpr float SAS_DIAL_RADIUS = 74.0f;
         constexpr ImVec2 SAS_DIAL_OFFSET = { 302.0f, -6.0f }; // from the navball's centre to the dial's
         constexpr float SAS_RING = 52.0f; // how far out the mode buttons sit
@@ -513,6 +519,8 @@ namespace tenth
         const double radius = mSolarSystem.body(earth).radius;
         const Vehicle vehicle = makeVehicle(mDesign);
         mTime = 0.0;
+        mWarp.stop();
+        mWarp.setPaused(false);
         mGForce = 1.0;
         mLaunched = false;
         mDebris.clear();
@@ -555,6 +563,22 @@ namespace tenth
         {
             return;
         }
+        // A tank about to run dry holds time at 1x until it's empty, so staging isn't missed at speed
+        mWarp.run(
+            [&]
+            {
+                stepPhysics(dt);
+                mWarp.setHeld(secondsOfFuel(mRocket.vehicle(), mRocket.pressure()) < FUEL_WARNING);
+            },
+            []
+            {
+                return GetTime();
+            },
+            dt * WARP_BUDGET);
+    }
+
+    void FlightScene::stepPhysics(double dt)
+    {
         const Vec3d before = mRocket.velocity();
         const BodyId reference = mRocket.reference();
         mRocket.step(dt, mSolarSystem, mTime);
@@ -749,6 +773,24 @@ namespace tenth
             if (IsKeyPressed(KEY_T))
             {
                 mRocket.setSas(mRocket.sas() == SasMode::Off ? SasMode::Stability : SasMode::Off);
+            }
+
+            // Period and comma speed time up and slow it down, slash returns to real time, and P pauses
+            if (IsKeyPressed(KEY_PERIOD) && mLaunched)
+            {
+                mWarp.faster();
+            }
+            if (IsKeyPressed(KEY_COMMA))
+            {
+                mWarp.slower();
+            }
+            if (IsKeyPressed(KEY_SLASH))
+            {
+                mWarp.stop();
+            }
+            if (IsKeyPressed(KEY_P) && mLaunched)
+            {
+                mWarp.togglePause();
             }
 
             // W and S pitch it, A and D yaw it, Q and E roll it
@@ -982,24 +1024,100 @@ namespace tenth
                 requestScene(SceneId::Build);
             }
         }
-        ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   Right-drag look");
+        ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   , . / warp   P pause   Right-drag look");
         ImGui::End();
     }
 
-    // Bottom middle: the mission clock, counting up from launch
+    // Bottom middle: the mission clock beside a pause button, and under it a row of arrows for time warp that light up
+    // to the chosen rate. The caption shows the rate, and the rate really reached when the computer can't keep up.
     void FlightScene::drawClock()
     {
-        const ImVec2 size = { 220.0f, 46.0f };
-        const ImVec2 min = { ((float)GetScreenWidth() - size.x) * 0.5f, (float)GetScreenHeight() - size.y - HUD_MARGIN };
-        const ImVec2 max = offset(min, size.x, size.y);
+        // Centred, unless that would run it into the SAS control tab on a narrow window
+        const float clear = navballCentre().x + SAS_DIAL_OFFSET.x + SAS_TAB_SIZE.x * 0.5f + HUD_MARGIN;
+        const ImVec2 min = { std::max(((float)GetScreenWidth() - CLOCK_SIZE.x) * 0.5f, clear), (float)GetScreenHeight() - CLOCK_SIZE.y - HUD_MARGIN };
+        const ImVec2 max = offset(min, CLOCK_SIZE.x, CLOCK_SIZE.y);
         ImGui::SetNextWindowPos(min, ImGuiCond_Always);
-        ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-        ImGui::Begin("Clock", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoInputs);
+        ImGui::SetNextWindowSize(CLOCK_SIZE, ImGuiCond_Always);
+        ImGui::Begin("Clock", nullptr, OVERLAY_FLAGS);
         ImDrawList* pList = ImGui::GetWindowDrawList();
-        panel(pList, min, max, mLaunched ? HUD_GREEN : HUD_EDGE);
-        text(pList, offset(min, 12.0f, 8.0f), 16.0f, mLaunched ? HUD_GREEN : HUD_MUTED, "T+");
-        textRight(pList, max.x - 12.0f, min.y + 4.0f, 26.0f, HUD_TEXT, clockText(mTime).c_str());
-        caption(pList, min, max, "MISSION TIME");
+        const bool running = mLaunched && !mWarp.paused();
+        panel(pList, min, max, !mLaunched ? HUD_EDGE : (mWarp.paused() ? HUD_YELLOW : HUD_GREEN));
+
+        // The pause button shows two bars while time runs and a play arrow while it's stopped
+        const ImVec2 pause = offset(min, 12.0f + PAUSE_RADIUS, 6.0f + PAUSE_RADIUS);
+        const ImU32 pauseInk = !mLaunched ? HUD_DIM : (mWarp.paused() ? HUD_YELLOW : HUD_GREEN);
+        pList->AddCircleFilled(pause, PAUSE_RADIUS, HUD_BOX, 24);
+        pList->AddCircle(pause, PAUSE_RADIUS, pauseInk, 24, 1.5f);
+        if (mWarp.paused())
+        {
+            pList->AddTriangleFilled(offset(pause, -4.0f, -6.0f), offset(pause, 6.0f, 0.0f), offset(pause, -4.0f, 6.0f), pauseInk);
+        }
+        else
+        {
+            pList->AddRectFilled(offset(pause, -5.0f, -6.0f), offset(pause, -1.5f, 6.0f), pauseInk);
+            pList->AddRectFilled(offset(pause, 1.5f, -6.0f), offset(pause, 5.0f, 6.0f), pauseInk);
+        }
+        ImGui::SetCursorScreenPos(offset(pause, -PAUSE_RADIUS, -PAUSE_RADIUS));
+        if (ImGui::InvisibleButton("pause", { PAUSE_RADIUS * 2.0f, PAUSE_RADIUS * 2.0f }) && mLaunched)
+        {
+            mWarp.togglePause();
+        }
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Pause (P)");
+        }
+
+        text(pList, offset(min, 24.0f + PAUSE_RADIUS * 2.0f, 9.0f), 16.0f, mLaunched ? HUD_GREEN : HUD_MUTED, "T+");
+        textRight(pList, max.x - 12.0f, min.y + 6.0f, 26.0f, HUD_TEXT, clockText(mTime).c_str());
+
+        // Each arrow sets its rate when clicked; those up to the chosen one are lit. While a tank is about to run dry,
+        // all but real time are greyed out.
+        const float row = min.y + 49.0f;
+        for (int i = 0; i < (int)TimeWarp::RATES.size(); i++)
+        {
+            const float left = min.x + 14.0f + WARP_SPACING * i;
+            const bool lit = running && i <= mWarp.level();
+            const bool open = mLaunched && (i == 0 || !mWarp.held());
+            const ImU32 ink = !open ? HUD_DIM : (lit ? HUD_GREEN : HUD_MUTED);
+            pList->AddTriangleFilled({ left, row - WARP_ARROW }, { left + WARP_ARROW * 1.6f, row }, { left, row + WARP_ARROW }, lit ? ink : HUD_DIM);
+            pList->AddTriangle({ left, row - WARP_ARROW }, { left + WARP_ARROW * 1.6f, row }, { left, row + WARP_ARROW }, ink, 1.0f);
+            ImGui::SetCursorScreenPos({ left - 3.0f, row - WARP_ARROW - 3.0f });
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("warp", { WARP_SPACING, WARP_ARROW * 2.0f + 6.0f }) && open)
+            {
+                mWarp.setLevel(i);
+                mWarp.setPaused(false);
+            }
+            ImGui::PopID();
+            if (ImGui::IsItemHovered())
+            {
+                if (mWarp.held() && i > 0)
+                {
+                    ImGui::SetTooltip("Held at 1x: a burning stage runs dry in under %.0f s", FUEL_WARNING);
+                }
+                else
+                {
+                    ImGui::SetTooltip("%dx   (. faster, , slower, / real time)", TimeWarp::RATES[i]);
+                }
+            }
+        }
+
+        char value[48];
+        if (mWarp.paused())
+        {
+            std::snprintf(value, sizeof(value), "PAUSED");
+        }
+        else if (mWarp.achieved() < mWarp.rate() * 0.9)
+        {
+            std::snprintf(value, sizeof(value), "%dx (%.0fx)", mWarp.rate(), mWarp.achieved());
+        }
+        else
+        {
+            std::snprintf(value, sizeof(value), "%dx", mWarp.rate());
+        }
+        const ImU32 rateInk = mWarp.held() && running ? HUD_ORANGE : (mWarp.rate() > 1 && running ? HUD_YELLOW : HUD_TEXT);
+        textRight(pList, max.x - 12.0f, row - 8.0f, 16.0f, rateInk, mWarp.held() && running ? "LOW FUEL  1x" : value);
+        caption(pList, min, max, "TIME WARP");
         ImGui::End();
     }
 
