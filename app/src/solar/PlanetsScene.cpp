@@ -7,6 +7,8 @@
 
 #include <engine/Conversions.h>
 
+#include "shared/SceneNames.h"
+
 namespace tenth
 {
     namespace
@@ -67,7 +69,7 @@ namespace tenth
         }
     }
 
-    PlanetsScene::PlanetsScene(Camera3D& camera) : mCamera(camera), mContacts(MAX_CONTACTS)
+    PlanetsScene::PlanetsScene() : mContacts(MAX_CONTACTS)
     {
         mCollisionData.contactArray = mContacts.data();
         mResolver.restitution = mRestitution;
@@ -126,29 +128,26 @@ namespace tenth
         launch();
     }
 
-    void PlanetsScene::onEnter()
+    // The models need the window's graphics context, so they're made on first entry
+    void PlanetsScene::onLoad()
     {
-        if (!mModelsReady)
-        {
-            mPlanetModel = LoadModelFromMesh(GenMeshSphere((float)PLANET_RADIUS, 16, 16));
-            mSunModel = LoadModelFromMesh(GenMeshSphere((float)SUN_RADIUS, 16, 16));
-            mModelsReady = true;
-        }
-        mCamera.position = { 80.0f, 30.0f, 15.0f };
-        mCamera.target = { 0.0f, 0.0f, 0.0f };
-        mCamera.up = { 0.0f, 1.0f, 0.0f };
-        mCamera.fovy = 45.0f;
-        mCamera.projection = CAMERA_PERSPECTIVE;
+        mPlanetModel = LoadModelFromMesh(GenMeshSphere((float)PLANET_RADIUS, 16, 16));
+        mSunModel = LoadModelFromMesh(GenMeshSphere((float)SUN_RADIUS, 16, 16));
     }
 
-    void PlanetsScene::onShutdown()
+    void PlanetsScene::onUnload()
     {
-        if (mModelsReady)
-        {
-            UnloadModel(mPlanetModel);
-            UnloadModel(mSunModel);
-            mModelsReady = false;
-        }
+        UnloadModel(mPlanetModel);
+        UnloadModel(mSunModel);
+    }
+
+    void PlanetsScene::onEnter()
+    {
+        getCamera().position = { 80.0f, 30.0f, 15.0f };
+        getCamera().target = { 0.0f, 0.0f, 0.0f };
+        getCamera().up = { 0.0f, 1.0f, 0.0f };
+        getCamera().fovy = 45.0f;
+        getCamera().projection = CAMERA_PERSPECTIVE;
     }
 
     // Every body pulls each planet toward it; the sun is held in place
@@ -179,7 +178,7 @@ namespace tenth
         {
             return;
         }
-        const Ray ray = GetScreenToWorldRay(GetMousePosition(), mCamera);
+        const Ray ray = GetScreenToWorldRay(GetMousePosition(), getCamera());
         for (Body& body : mBodies)
         {
             const RayCollision hit = GetRayCollisionSphere(ray, engine::toRaylib(body.rigidBody.getPosition()), (float)body.collider.radius);
@@ -220,7 +219,7 @@ namespace tenth
 
     void PlanetsScene::onUpdate(double frameDt, double /*alpha*/)
     {
-        mFlyCamera.update(mCamera, (float)frameDt);
+        mFlyCamera.update(getCamera(), (float)frameDt);
     }
 
     void PlanetsScene::onDraw3D()
@@ -257,7 +256,7 @@ namespace tenth
         ImGui::TextDisabled("Hold right mouse to look, WASD to fly.\nHold left mouse on a planet to push it.");
         if (ImGui::Button("Back to assembly", { 200.0f, 0.0f }))
         {
-            requestScene(SceneId::Build);
+            switchTo(scenes::BUILD);
         }
         ImGui::End();
     }

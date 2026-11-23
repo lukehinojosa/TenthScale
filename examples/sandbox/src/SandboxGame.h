@@ -137,6 +137,7 @@ private:
     Model mUnitSphere{};
     int mThrownBalls = 0;
     bool mShowContacts = false;
+    bool mShowWires = false;
 
     ai::Flock mFlock;
     Model mBoidModel{};

@@ -1,0 +1,12 @@
+# Runtime settings: edit and re-run, no rebuild needed. Missing keys keep their built-in defaults.
+# Override the path with the PHYSICS2D_CONFIG environment variable.
+
+window:
+  title: "CppTemplate 2D Physics"
+  width: 1280
+  height: 720
+
+physics:
+  fixed_hz: 60 # physics steps per second, independent of frame rate
+  friction: 0.6 # 0 to 1
+  restitution: 0.2 # bounciness, 0 to 1

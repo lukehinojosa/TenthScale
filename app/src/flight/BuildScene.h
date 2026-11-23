@@ -7,21 +7,22 @@
 
 #include <raylib.h>
 
+#include <engine/Scene.h>
+
 #include "flight/DesignStats.h"
 #include "flight/PartCatalog.h"
 #include "flight/RocketDesign.h"
 #include "shared/OrbitCamera.h"
-#include "shared/Scene.h"
 #include "shared/SolarSystem.h"
 
 namespace tenth
 {
     // The assembly building: the rocket floats in the middle of the hall while parts are dragged onto it from the
     // panel on the left, with its stages and stats on the right
-    class BuildScene : public Scene
+    class BuildScene : public engine::Scene
     {
     public:
-        BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem);
+        BuildScene(const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem);
 
         void onEnter() override;
         void onUpdate(double frameDt, double alpha) override;
@@ -79,7 +80,6 @@ namespace tenth
         void redo();
         void deleteSelected();
 
-        Camera3D& mCamera;
         const PartCatalog& mCatalog;
         RocketDesign& mDesign;
         OrbitCamera mOrbit;

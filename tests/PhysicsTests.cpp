@@ -446,6 +446,54 @@ TEST_CASE("A joint holds a box hanging from a fixed point")
     CHECK(pBox->body.getPosition().y < 6);
 }
 
+TEST_CASE("A chain on World joints stays pinned together, then settles hanging straight down")
+{
+    World world;
+    std::vector<std::unique_ptr<Box>> links;
+    std::vector<std::unique_ptr<Joint>> joints;
+    const Vector3 anchor(0, 10, 0);
+    const Vector3 halfSize(0.15f, 0.35f, 0.15f);
+    RigidBody* pPrevious = nullptr;
+    for (int i = 0; i < 6; i++)
+    {
+        // Laid out sideways, so the chain whips down when it starts
+        auto pLink = makeBox(world, Vector3(0.75f * ((real)i + 0.5f), 10, 0), halfSize, 0.4f);
+        pLink->body.setOrientation(Quaternion(0.7071f, 0, 0, 0.7071f));
+        pLink->body.setLinearDamping(0.5f);
+        pLink->body.setAngularDamping(0.5f);
+        auto pJoint = std::make_unique<Joint>();
+        if (pPrevious == nullptr)
+        {
+            pJoint->set(&pLink->body, Vector3(0, halfSize.y, 0), nullptr, anchor, 0.01f);
+        }
+        else
+        {
+            pJoint->set(&pLink->body, Vector3(0, halfSize.y, 0), pPrevious, Vector3(0, -halfSize.y, 0), 0.01f);
+        }
+        world.joints.push_back(pJoint.get());
+        pPrevious = &pLink->body;
+        links.push_back(std::move(pLink));
+        joints.push_back(std::move(pJoint));
+    }
+
+    // The links start a little apart, as in the sandbox, so the joints get a few frames to pull them in
+    run(world, (real)0.1);
+    for (int i = 0; i < 300; i++)
+    {
+        world.runPhysics(DT);
+        for (const auto& pJoint : joints)
+        {
+            REQUIRE((pJoint->getWorldPosition(0) - pJoint->getWorldPosition(1)).magnitude() < 0.02f);
+        }
+    }
+    run(world, 30);
+
+    const Vector3 bottom = links.back()->body.getPosition();
+    CHECK(std::abs(bottom.x) < 0.1f);
+    CHECK(bottom.y < 10 - 0.7f * 5.5f);
+    CHECK(world.getAwakeCount() == 0);
+}
+
 TEST_CASE("An explosion throws nearby bodies away and up")
 {
     World world;

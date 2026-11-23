@@ -9,6 +9,7 @@
 
 #include "Audio.h"
 #include "InputSystem.h"
+#include "SceneManager.h"
 
 namespace engine
 {
@@ -26,7 +27,8 @@ namespace engine
         Color clearColor = { 30, 30, 36, 255 };
     };
 
-    // Subclass and override the on* hooks; run() owns the window, ImGui, and the frame loop
+    // Subclass and override the on* hooks, or add scenes to getScenes() and let it drive them; run() owns the window,
+    // ImGui, and the frame loop. Each frame the current scene runs first, then the game's own hook.
     class Game : public core::EventListener
     {
     public:
@@ -60,11 +62,14 @@ namespace engine
         Camera3D& getCamera() { return mCamera; }
         InputSystem& getInput() { return mInput; }
         AudioManager& getAudio() { return mAudio; }
+        SceneManager& getScenes() { return mScenes; }
         core::CallbackManager& getCallbacks() { return mCallbacks; }
         double getFixedDt() const { return 1.0 / mConfig.fixedHz; }
         double getTime() const { return mTime; }
 
     private:
+        friend class Scene;
+
         void init();
         void frame();
         void shutdown();
@@ -75,6 +80,7 @@ namespace engine
         InputSystem mInput;
         AudioManager mAudio;
         core::CallbackManager mCallbacks;
+        SceneManager mScenes{ *this };
         double mAccumulator = 0.0;
         double mTime = 0.0;
         bool mShouldQuit = false;

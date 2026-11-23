@@ -16,19 +16,30 @@
 #include "flight/Atmosphere.h"
 #include "flight/PartDrawing.h"
 #include "flight/StageSymbol.h"
+#include "shared/SceneNames.h"
 
 namespace tenth
 {
     namespace
     {
-        constexpr float PAD_HALF_WIDTH = 8.0f;
-        constexpr float PAD_THICKNESS = 1.0f;
-        constexpr float PAD_LIFT = 0.02f; // the pad's top sits this far above the ground so the two don't flicker
-        constexpr Vector3 TOWER_POSITION = { -2.8f, 0.0f, -3.4f }; // behind the rocket from where the camera starts
+        constexpr double DEGREES = std::numbers::pi / 180.0;
+        constexpr double FEET = 0.3048; // metres
+        constexpr double PAD_LATITUDE = (28.0 + 36.0 / 60.0 + 30.0 / 3600.0) * DEGREES; // Kennedy Space Center, pad 39A
+        constexpr double PAD_LONGITUDE = -(80.0 + 36.0 / 60.0 + 16.0 / 3600.0) * DEGREES;
+        constexpr double PAD_HEIGHT = 48.0 * FEET;
+        constexpr double PAD_LENGTH = 390.0 * FEET; // north to south, along the flame trench
+        constexpr double PAD_WIDTH = 325.0 * FEET;
+        constexpr double PAD_SLOPE = 3.0; // the sloped sides run this far out for each metre they drop
+        constexpr float PAD_LIFT = 0.03f; // markings sit this far above the pad's top so the two don't flicker
+        constexpr float PAD_BURY = 1.0f; // the sides reach a little below the ground so no gap shows round the foot
+        constexpr float TRENCH_WIDTH = 58.0f * (float)FEET;
+        constexpr float TRENCH_LENGTH = 150.0f * (float)FEET; // of the opening across the top
+        constexpr Vector3 TOWER_POSITION = { -10.0f, 0.0f, -3.4f }; // on the trench's west edge, behind the rocket from the camera
         constexpr float TOWER_WIDTH = 1.4f;
         constexpr Vector3 SUN_DIRECTION = { 0.45f, 0.75f, 0.48f };
         constexpr Color GROUND_COLOR = { 74, 96, 62, 255 };
         constexpr Color PAD_COLOR = { 150, 148, 140, 255 };
+        constexpr Color PAD_SIDE_COLOR = { 96, 112, 74, 255 }; // grassed over
         constexpr Color TRENCH_COLOR = { 40, 40, 44, 255 };
         constexpr Color TOWER_COLOR = { 170, 70, 50, 255 };
 
@@ -37,10 +48,6 @@ namespace tenth
         constexpr float FLAME_LENGTH = 6.0f; // metres at full throttle in vacuum, per metre of nozzle width
         constexpr Color CANOPY_COLOR = { 240, 120, 40, 255 };
         constexpr Color CANOPY_STRIPE_COLOR = { 245, 245, 240, 255 };
-        constexpr Color DAY_ZENITH = { 70, 130, 215, 255 };
-        constexpr Color DAY_HORIZON = { 190, 215, 240, 255 };
-        constexpr Color SPACE_COLOR = { 4, 6, 14, 255 };
-        constexpr Color SPACE_HORIZON_COLOR = { 30, 50, 90, 255 };
         constexpr Color FLASH_COLOR = { 255, 240, 190, 255 };
         constexpr Color SPARK_COLOR = { 255, 190, 80, 255 };
         constexpr Color SMOKE_COLOR = { 200, 200, 205, 255 };
@@ -102,74 +109,6 @@ namespace tenth
 
         constexpr double NEAR_PLANE = 0.1;
         constexpr double FAR_PLANE = 5.0e6; // past the far side of Earth from low orbit
-
-        constexpr int GROUND_RINGS = 36;
-        constexpr int GROUND_SEGMENTS = 96;
-        constexpr double GROUND_FIRST_RING = 2.0; // metres
-        constexpr double GROUND_RING_GROWTH = 1.35;
-
-        // A patch of the curved surface around the pad, with rings spaced closer near the middle where the camera is.
-        // The whole-planet sphere is too coarse to stand on, so this covers everything in sight from the ground.
-        Mesh makeGroundMesh(double radius)
-        {
-            Mesh mesh{};
-            mesh.vertexCount = 1 + GROUND_RINGS * GROUND_SEGMENTS;
-            mesh.triangleCount = GROUND_SEGMENTS + (GROUND_RINGS - 1) * GROUND_SEGMENTS * 2;
-            mesh.vertices = (float*)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
-            mesh.normals = (float*)MemAlloc(mesh.vertexCount * 3 * sizeof(float));
-            mesh.texcoords = (float*)MemAlloc(mesh.vertexCount * 2 * sizeof(float));
-            mesh.indices = (unsigned short*)MemAlloc(mesh.triangleCount * 3 * sizeof(unsigned short));
-
-            mesh.normals[1] = 1.0f;
-            double distance = GROUND_FIRST_RING;
-            for (int ring = 0; ring < GROUND_RINGS; ring++)
-            {
-                const double angle = distance / radius;
-                const double across = radius * std::sin(angle);
-                const double drop = radius * (std::cos(angle) - 1.0);
-                for (int segment = 0; segment < GROUND_SEGMENTS; segment++)
-                {
-                    const double heading = 2.0 * std::numbers::pi * segment / GROUND_SEGMENTS;
-                    const int vertex = 1 + ring * GROUND_SEGMENTS + segment;
-                    mesh.vertices[vertex * 3 + 0] = (float)(across * std::cos(heading));
-                    mesh.vertices[vertex * 3 + 1] = (float)drop;
-                    mesh.vertices[vertex * 3 + 2] = (float)(across * std::sin(heading));
-                    mesh.normals[vertex * 3 + 0] = (float)(std::sin(angle) * std::cos(heading));
-                    mesh.normals[vertex * 3 + 1] = (float)std::cos(angle);
-                    mesh.normals[vertex * 3 + 2] = (float)(std::sin(angle) * std::sin(heading));
-                }
-                distance *= GROUND_RING_GROWTH;
-            }
-
-            // Wound so each triangle faces up, the way the camera sees it
-            int index = 0;
-            for (int segment = 0; segment < GROUND_SEGMENTS; segment++)
-            {
-                const int next = (segment + 1) % GROUND_SEGMENTS;
-                mesh.indices[index++] = 0;
-                mesh.indices[index++] = (unsigned short)(1 + next);
-                mesh.indices[index++] = (unsigned short)(1 + segment);
-            }
-            for (int ring = 0; ring + 1 < GROUND_RINGS; ring++)
-            {
-                for (int segment = 0; segment < GROUND_SEGMENTS; segment++)
-                {
-                    const int next = (segment + 1) % GROUND_SEGMENTS;
-                    const unsigned short inner = (unsigned short)(1 + ring * GROUND_SEGMENTS + segment);
-                    const unsigned short innerNext = (unsigned short)(1 + ring * GROUND_SEGMENTS + next);
-                    const unsigned short outer = (unsigned short)(inner + GROUND_SEGMENTS);
-                    const unsigned short outerNext = (unsigned short)(innerNext + GROUND_SEGMENTS);
-                    mesh.indices[index++] = inner;
-                    mesh.indices[index++] = innerNext;
-                    mesh.indices[index++] = outer;
-                    mesh.indices[index++] = innerNext;
-                    mesh.indices[index++] = outerNext;
-                    mesh.indices[index++] = outer;
-                }
-            }
-            UploadMesh(&mesh, false);
-            return mesh;
-        }
 
         ImVec2 offset(ImVec2 a, float x, float y)
         {
@@ -504,15 +443,30 @@ namespace tenth
         }
     }
 
-    FlightScene::FlightScene(Camera3D& camera, const RocketDesign& design, const SolarSystem& solarSystem)
-        : mCamera(camera), mDesign(design), mSolarSystem(solarSystem)
+    FlightScene::FlightScene(const RocketDesign& design, const SolarSystem& solarSystem)
+        : mDesign(design), mSolarSystem(solarSystem)
     {
         mOrbit.minPitch = -1.5f;
         mOrbit.liftWithKeys = false;
         mOrbit.maxDistance = 3000.0f;
     }
 
-    // The rocket rolls out as built and stands on the pad at the equator with its tanks full
+    // The sky and the planet need the window's graphics context, so they're made on first entry
+    void FlightScene::onLoad()
+    {
+        const BodyInfo& earth = mSolarSystem.body(mSolarSystem.findBody("Earth"));
+        const SurfaceFrame site = SurfaceFrame::below(SurfaceFrame::direction(PAD_LATITUDE, PAD_LONGITUDE), earth.radius);
+        mSky.init();
+        mPlanet.init(site, earth.radius, earth.atmosphereHeight, GROUND_COLOR);
+    }
+
+    void FlightScene::onUnload()
+    {
+        mSky.unload();
+        mPlanet.unload();
+    }
+
+    // The rocket rolls out as built and stands on top of pad 39A with its tanks full
     void FlightScene::onEnter()
     {
         const BodyId earth = mSolarSystem.findBody("Earth");
@@ -525,17 +479,18 @@ namespace tenth
         mLaunched = false;
         mDebris.clear();
         mPuffs.clear();
+        const Vec3d site = SurfaceFrame::direction(PAD_LATITUDE, PAD_LONGITUDE);
+        mPad = SurfaceFrame::below(site, radius);
+        mLaunchPad.body = earth;
+        mLaunchPad.frame = mPad;
+        mLaunchPad.halfWidth = PAD_WIDTH * 0.5;
+        mLaunchPad.halfLength = PAD_LENGTH * 0.5;
+        mLaunchPad.height = PAD_HEIGHT;
+        mLaunchPad.skirt = PAD_HEIGHT * PAD_SLOPE;
         mRocket.setVehicle(vehicle);
-        mRocket.place(earth, { radius + vehicle.groundClearance, 0.0, 0.0 }, {});
-        mPad = SurfaceFrame::below(mRocket.position(), radius);
+        mRocket.setPad(mLaunchPad);
+        mRocket.place(earth, site * (radius + PAD_HEIGHT + vehicle.groundClearance), {});
 
-        if (!mGraphicsReady)
-        {
-            mSkyReady = mSky.init();
-            mEarthModel = LoadModelFromMesh(GenMeshSphere(1.0f, 96, 192));
-            mGroundModel = LoadModelFromMesh(makeGroundMesh(radius));
-            mGraphicsReady = true;
-        }
         mPreviousNear = rlGetCullDistanceNear();
         mPreviousFar = rlGetCullDistanceFar();
         rlSetClipPlanes(NEAR_PLANE, FAR_PLANE);
@@ -815,15 +770,17 @@ namespace tenth
         mOrbit.focus = mFocus;
         mOrbit.minFocusHeight = mFocus.y;
         mOrbit.maxFocusHeight = mFocus.y;
-        // The ground right under the rocket, since far downrange the planet curves away below the pad's level
+        // The ground right under the rocket, or the pad's top, since far downrange the planet curves away below it
         const double radius = mSolarSystem.body(mRocket.reference()).radius;
-        mOrbit.minCameraHeight = toScene(mRocket.position().normalized() * radius).y + 0.5f;
+        const Vec3d over = mPad.toLocal(mRocket.position());
+        const double ground = radius + (mRocket.reference() == mLaunchPad.body ? mLaunchPad.heightAt(over.x, over.z) : 0.0);
+        mOrbit.minCameraHeight = toScene(mRocket.position().normalized() * ground).y + 0.5f;
         if (mZoomTarget > 0.0f)
         {
             mOrbit.distance += (mZoomTarget - mOrbit.distance) * follow;
         }
         const float easedDistance = mOrbit.distance;
-        mOrbit.update(mCamera, (float)frameDt);
+        mOrbit.update(getCamera(), (float)frameDt);
 
         // Scrolling while it eases moves where it's heading too, so the wheel still works
         if (mZoomTarget > 0.0f)
@@ -848,47 +805,93 @@ namespace tenth
         return toRaylib(mPad.rotate(position - mRocket.position()));
     }
 
-    // The planet is drawn first and ignores depth, so the finer ground patch and everything after draw over it
+    double FlightScene::cameraHeight() const
+    {
+        const Vector3 camera = getCamera().position;
+        const Vec3d at = mRocket.position() + mPad.toBody({ camera.x, camera.y, camera.z });
+        return at.length() - mSolarSystem.body(mRocket.reference()).radius;
+    }
+
+    // The stars and the air behind everything, then the planet seen through the air
     void FlightScene::drawGround() const
     {
-        const float radius = (float)mSolarSystem.body(mRocket.reference()).radius;
-        rlDrawRenderBatchActive();
-        rlDisableDepthTest();
-        DrawModelEx(mEarthModel, toScene({}), { 0.0f, 1.0f, 0.0f }, 0.0f, { radius, radius, radius }, GROUND_COLOR);
-        rlDrawRenderBatchActive();
-        rlEnableDepthTest();
-        DrawModel(mGroundModel, toScene(mPad.origin), 1.0f, GROUND_COLOR);
+        const BodyInfo& body = mSolarSystem.body(mRocket.reference());
+        const double height = cameraHeight();
+        SpaceSky::View sky;
+        sky.axes = mPad;
+        sky.centre = toScene({});
+        sky.camera = getCamera().position;
+        sky.sun = SUN_DIRECTION;
+        sky.radius = body.radius;
+        sky.atmosphereHeight = body.atmosphereHeight;
+        sky.cameraHeight = height;
+        mSky.draw(sky);
+
+        PlanetSurface::View view;
+        view.axes = mPad;
+        view.centre = sky.centre;
+        view.camera = sky.camera;
+        view.sun = SUN_DIRECTION;
+        view.cameraHeight = height;
+        mPlanet.draw(view);
+    }
+
+    void FlightScene::drawPad() const
+    {
+        const Vector3 pad = toScene(mPad.origin);
+        const float height = (float)mLaunchPad.height;
+        const float halfWidth = (float)mLaunchPad.halfWidth;
+        const float halfLength = (float)mLaunchPad.halfLength;
+        const float footWidth = halfWidth + (float)mLaunchPad.skirt;
+        const float footLength = halfLength + (float)mLaunchPad.skirt;
+
+        // Corners going round, each sloped side shaded by how squarely it faces the sun
+        const Vector3 top[4] = { pad + Vector3{ -halfWidth, height, -halfLength }, pad + Vector3{ -halfWidth, height, halfLength },
+                                 pad + Vector3{ halfWidth, height, halfLength }, pad + Vector3{ halfWidth, height, -halfLength } };
+        const Vector3 foot[4] = { pad + Vector3{ -footWidth, -PAD_BURY, -footLength }, pad + Vector3{ -footWidth, -PAD_BURY, footLength },
+                                  pad + Vector3{ footWidth, -PAD_BURY, footLength }, pad + Vector3{ footWidth, -PAD_BURY, -footLength } };
+        const Vector3 sun = Vector3Normalize(SUN_DIRECTION);
+        for (int i = 0; i < 4; i++)
+        {
+            const int j = (i + 1) % 4;
+            const Vector3 facing = Vector3Normalize(Vector3CrossProduct(foot[j] - foot[i], top[j] - foot[i]));
+            const Color side = ColorBrightness(PAD_SIDE_COLOR, 0.35f * std::max(Vector3DotProduct(facing, sun), 0.0f) - 0.25f);
+            DrawTriangle3D(foot[i], foot[j], top[j], side);
+            DrawTriangle3D(foot[i], top[j], top[i], side);
+        }
+        const Vector3 lift = { 0.0f, PAD_LIFT, 0.0f };
+        for (int i = 0; i < 4; i++)
+        {
+            DrawLine3D(top[i] + lift, top[(i + 1) % 4] + lift, ColorBrightness(PAD_COLOR, -0.3f));
+        }
+
+        // The flame trench's cover runs north to south under the rocket. The concrete is laid round it rather than
+        // under it, so the two never overlap to flicker against each other.
+        const Vector3 deck = pad + Vector3{ 0.0f, height, 0.0f };
+        const float trenchX = TRENCH_WIDTH * 0.5f;
+        const float trenchZ = TRENCH_LENGTH * 0.5f;
+        const auto slab = [&](float x0, float z0, float x1, float z1, Color color)
+        {
+            DrawTriangle3D(deck + Vector3{ x0, 0.0f, z0 }, deck + Vector3{ x0, 0.0f, z1 }, deck + Vector3{ x1, 0.0f, z1 }, color);
+            DrawTriangle3D(deck + Vector3{ x0, 0.0f, z0 }, deck + Vector3{ x1, 0.0f, z1 }, deck + Vector3{ x1, 0.0f, z0 }, color);
+        };
+        slab(-halfWidth, -halfLength, -trenchX, halfLength, PAD_COLOR);
+        slab(trenchX, -halfLength, halfWidth, halfLength, PAD_COLOR);
+        slab(-trenchX, -halfLength, trenchX, -trenchZ, PAD_COLOR);
+        slab(-trenchX, trenchZ, trenchX, halfLength, PAD_COLOR);
+        slab(-trenchX, -trenchZ, trenchX, trenchZ, TRENCH_COLOR);
+
+        // The service tower beside the rocket, a little taller than it
+        const float towerHeight = (float)(mDesign.highestPoint() - mDesign.lowestPoint()) + 4.0f;
+        const Vector3 tower = deck + Vector3{ TOWER_POSITION.x, towerHeight * 0.5f, TOWER_POSITION.z };
+        DrawCube(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, TOWER_COLOR);
+        DrawCubeWires(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, ColorBrightness(TOWER_COLOR, -0.5f));
     }
 
     void FlightScene::onDraw3D()
     {
-        if (mSkyReady)
-        {
-            // The blue thins to black as the air does, a little slower so the horizon keeps a glow near the top
-            const BodyInfo& body = mSolarSystem.body(mRocket.reference());
-            const float air = (float)std::pow(pressureRatio(body, mRocket.altitude(mSolarSystem)), 0.35);
-            mSky.dayZenith = ColorLerp(SPACE_COLOR, DAY_ZENITH, air);
-            mSky.dayHorizon = ColorLerp(SPACE_HORIZON_COLOR, DAY_HORIZON, air);
-            mSky.draw(SUN_DIRECTION);
-        }
-        if (mGraphicsReady)
-        {
-            drawGround();
-        }
-
-        const Vector3 pad = toScene(mPad.origin);
-        const Vector3 slab = pad + Vector3{ 0.0f, PAD_LIFT - PAD_THICKNESS * 0.5f, 0.0f };
-        DrawCube(slab, PAD_HALF_WIDTH * 2.0f, PAD_THICKNESS, PAD_HALF_WIDTH * 2.0f, PAD_COLOR);
-        DrawCubeWires(slab, PAD_HALF_WIDTH * 2.0f, PAD_THICKNESS, PAD_HALF_WIDTH * 2.0f, ColorBrightness(PAD_COLOR, -0.4f));
-
-        // The flame trench opening under the rocket, a hair above the pad
-        DrawCube(pad + Vector3{ 0.0f, PAD_LIFT + 0.01f, 0.0f }, 2.4f, 0.02f, 2.4f, TRENCH_COLOR);
-
-        // The service tower beside the rocket, a little taller than it
-        const float towerHeight = (float)(mDesign.highestPoint() - mDesign.lowestPoint()) + 4.0f;
-        const Vector3 tower = pad + Vector3{ TOWER_POSITION.x, towerHeight * 0.5f, TOWER_POSITION.z };
-        DrawCube(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, TOWER_COLOR);
-        DrawCubeWires(tower, TOWER_WIDTH, towerHeight, TOWER_WIDTH, ColorBrightness(TOWER_COLOR, -0.5f));
+        drawGround();
+        drawPad();
 
         drawRocket(mRocket);
         for (const Debris& debris : mDebris)
@@ -1021,7 +1024,7 @@ namespace tenth
             ImGui::SameLine();
             if (ImGui::SmallButton("Back to assembly"))
             {
-                requestScene(SceneId::Build);
+                switchTo(scenes::BUILD);
             }
         }
         ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   , . / warp   P pause   Right-drag look");
@@ -1733,20 +1736,5 @@ namespace tenth
             stage();
         }
         ImGui::End();
-    }
-
-    void FlightScene::onShutdown()
-    {
-        if (mSkyReady)
-        {
-            mSky.unload();
-            mSkyReady = false;
-        }
-        if (mGraphicsReady)
-        {
-            UnloadModel(mEarthModel);
-            UnloadModel(mGroundModel);
-            mGraphicsReady = false;
-        }
     }
 }

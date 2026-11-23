@@ -97,15 +97,18 @@ flowchart TB
 
 | Folder | Contents |
 | --- | --- |
-| `app/src/` | The game: `Game.cpp` runs the scene and ties the modules together |
-| `app/src/shared/` | Shared module: `SolarSystem.h` (the interface between the modules), `Vec3d.h` (double-precision vectors), `Scene.h` (one screen of the game), and `OrbitCamera` |
+| `app/src/` | The game: `Game.cpp` adds the scenes to the engine's scene manager and ties the modules together |
+| `app/src/shared/` | Shared module: `SolarSystem.h` (the interface between the modules), `Vec3d.h` (double-precision vectors), `SceneNames.h` (what each scene is called, for switching), and `OrbitCamera` |
 | `app/src/solar/` | Solar System module: `CircularSolarSystem` is the placeholder with the Sun, Earth, and the Moon on circular orbits; `PlanetsScene` is the rotating planets sandbox. Its README covers what the Solar System has to answer |
 | `app/src/flight/` | Rocket and Flight module: `Rocket` is one Cyclone rigid body flying relative to whichever body's gravity it's in and resting on the ground, pushed by its lit engines and the air on each part, dropping stages (engines shut off) and nose cones as pieces of their own that can knock into each other, and carrying the `Vehicle` (fuel left, mass, center of mass, inertia, and staging) built from the design; `PartCatalog` and `RocketDesign` hold the parts and a rocket built from them, `DesignStats` works out its stages, and `DesignFile` saves and loads designs; `BuildScene` is the assembly building, and `FlightScene` takes the rocket from the launch pad into flight |
 | `app/assets/` | Images and sounds, loaded as `"assets/name.png"` |
 | `app/config/` | Runtime settings in `game.yaml`; changes apply without a rebuild |
+| `app/shaders/` | The planet, sky, and star shaders, as `.vert` and `.frag` files built into the game |
 | `examples/sandbox/` | A demo of every library from the template: lighting and shadows, terrain, the physics playground, audio. Reference for how to use each one. |
+| `examples/physics2d/` | The 2D physics engine on its own: stacks, a ramp, a chain on joints; click to drop shapes and drag them around |
 | `libs/cyclone/` | Cyclone physics (Millington, *Game Physics Engine Development*) |
-| `libs/engine/` | The game loop, rendering, lighting, audio, input, animation |
+| `libs/cyclone2d/` | The same engine in 2D, from the template |
+| `libs/engine/` | The game loop and scenes, rendering, lighting, audio, input, animation; its shaders are in `shaders/` |
 | `libs/core/` | Events, components, memory pools, config, timers |
 | `libs/ai/`, `net/`, `gpu/` | Game AI, networking, WebGPU compute (optional) |
 | `libs/vendor/` | Third-party code: raylib, Dear ImGui, rlImGui, FastNoiseLite |
@@ -142,6 +145,7 @@ From PowerShell in the repo root:
 | `.\build.ps1` | Debug build, then the unit tests |
 | `.\build.ps1 -Run` | Also starts the game |
 | `.\build.ps1 -Run -Sandbox` | Starts the sandbox example instead |
+| `.\build.ps1 -Run -Physics2D` | Starts the 2D physics example instead |
 | `.\build.ps1 -Config Release` | Release build |
 | `.\build.ps1 -SkipTests` | Skips the unit tests |
 | `.\build.ps1 -Web -Run` | Browser build, served on :8080 |
@@ -154,7 +158,7 @@ From PowerShell in the repo root:
 <details>
 <summary><b>CLion</b></summary>
 
-Open the folder and enable the `Windows Debug`, `Windows Release`, or `Web` profile when CLion offers the presets. They use CLion's bundled Ninja and its default "Visual Studio" toolchain, and share build folders with `build.ps1`, so the libraries are only compiled once.
+Open the folder and enable the `Windows Debug`, `Windows Release`, or `Web` profile when CLion offers the presets. They use CLion's bundled Ninja and its default "Visual Studio" toolchain, and share build folders with `build.ps1`, so the libraries are only compiled once. `build.ps1` uses the same Visual Studio version as the profiles CLion has enabled, even when a newer one is installed.
 
 </details>
 

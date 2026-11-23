@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 #include "shared/Vec3d.h"
 
 namespace tenth
@@ -32,9 +34,19 @@ namespace tenth
             return frame;
         }
 
+        // Straight up from a body's centre at a latitude and longitude in radians, north and east positive. The
+        // prime meridian crosses the equator on +X, and east from there is toward -Z.
+        static Vec3d direction(double latitude, double longitude)
+        {
+            return { std::cos(latitude) * std::cos(longitude), std::sin(latitude), -std::cos(latitude) * std::sin(longitude) };
+        }
+
         // A direction or offset in body axes, turned into this frame's axes
         Vec3d rotate(const Vec3d& v) const { return { v.dot(east), v.dot(up), v.dot(south) }; }
 
         Vec3d toLocal(const Vec3d& position) const { return rotate(position - origin); }
+
+        // A direction or offset in this frame's axes, turned back into body axes
+        Vec3d toBody(const Vec3d& v) const { return east * v.x + up * v.y + south * v.z; }
     };
 }

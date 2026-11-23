@@ -35,6 +35,48 @@ jobs:
       - name: Test
         run: ctest --test-dir build/release --output-on-failure
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Puts MSVC on PATH, the same compiler environment build.ps1 sets up locally
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Ninja
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue))
+          {
+              choco install ninja -y --no-progress
+          }
+
+      - name: Cache downloaded packages
+        uses: actions/cache@v6
+        with:
+          path: .cpm-cache
+          key: cpm-windows-${{ hashFiles('**/CMakeLists.txt', 'cmake/*.cmake') }}
+
+      # The static C runtime lets the downloaded game run on PCs without the Visual C++ Redistributable
+      - name: Configure
+        run: cmake --preset windows-release -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build
+        run: cmake --build --preset windows-release
+
+      - name: Test
+        run: ctest --preset windows-release
+
+      # The game, the examples and the relay server, with the assets and config they load from beside them
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-build
+          path: |
+            build/windows-release/bin/*.exe
+            build/windows-release/bin/assets
+            build/windows-release/bin/config
+            !build/windows-release/bin/tests.exe
+
   web:
     runs-on: ubuntu-latest
     steps:
@@ -65,10 +107,10 @@ jobs:
         with:
           path: build/web/bin
 
-  # Publishes the web build to GitHub Pages, only from main and only once both builds pass
+  # Publishes the web build to GitHub Pages, only from main and only once every build passes
   pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [ desktop, web ]
+    needs: [ desktop, windows, web ]
     runs-on: ubuntu-latest
     permissions:
       pages: write

@@ -11,6 +11,7 @@
 #include "flight/DesignFile.h"
 #include "flight/PartDrawing.h"
 #include "flight/StageSymbol.h"
+#include "shared/SceneNames.h"
 
 namespace tenth
 {
@@ -169,8 +170,8 @@ namespace tenth
         }
     }
 
-    BuildScene::BuildScene(Camera3D& camera, const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem)
-        : mCamera(camera), mCatalog(catalog), mDesign(design)
+    BuildScene::BuildScene(const PartCatalog& catalog, RocketDesign& design, const SolarSystem& solarSystem)
+        : mCatalog(catalog), mDesign(design)
     {
         mOrbit.leftInset = PANEL_WIDTH;
         mOrbit.rightInset = RIGHT_PANEL_WIDTH;
@@ -189,7 +190,7 @@ namespace tenth
 
     void BuildScene::onEnter()
     {
-        mOrbit.apply(mCamera);
+        mOrbit.apply(getCamera());
     }
 
     bool BuildScene::mouseOverViewport() const
@@ -254,7 +255,7 @@ namespace tenth
                 {
                     continue;
                 }
-                const Vector2 onScreen = GetWorldToScreen(nodePoint(placed.shape, centre, node), mCamera);
+                const Vector2 onScreen = GetWorldToScreen(nodePoint(placed.shape, centre, node), getCamera());
                 const float distance = Vector2Distance(onScreen, mouse);
                 if (distance < bestDistance)
                 {
@@ -341,8 +342,8 @@ namespace tenth
         mDesign.updateStaging();
         std::erase_if(mHighlighted, [this](PartIndex index) { return index >= mDesign.partCount(); });
         limitFocus();
-        mOrbit.update(mCamera, (float)frameDt);
-        const Ray ray = GetScreenToWorldRay(GetMousePosition(), mCamera);
+        mOrbit.update(getCamera(), (float)frameDt);
+        const Ray ray = GetScreenToWorldRay(GetMousePosition(), getCamera());
         if (!mHeld.empty())
         {
             updateHeld(ray);
@@ -363,7 +364,7 @@ namespace tenth
         mSnap = findSnap(ray);
 
         // Unsnapped parts float on an upright plane through the rocket, facing the camera
-        const Vector3 toCamera = Vector3Subtract(mCamera.position, mCamera.target);
+        const Vector3 toCamera = Vector3Subtract(getCamera().position, getCamera().target);
         const Vector3 normal = Vector3Normalize({ toCamera.x, 0.0f, toCamera.z });
         const float facing = Vector3DotProduct(ray.direction, normal);
         if (std::abs(facing) > 1e-4f)
@@ -533,7 +534,7 @@ namespace tenth
 
     void BuildScene::onDraw3D()
     {
-        drawHall(mCamera.position);
+        drawHall(getCamera().position);
 
         const Vector3 offset = designOffset();
         for (PartIndex i = 0; i < mDesign.partCount(); i++)
@@ -773,12 +774,12 @@ namespace tenth
         ImGui::BeginDisabled(mDesign.empty() || mDesign.part(0).pDefinition->category != PartCategory::Pod);
         if (ImGui::Button("Roll out to the launch pad", { -1.0f, 0.0f }))
         {
-            requestScene(SceneId::Flight);
+            switchTo(scenes::FLIGHT);
         }
         ImGui::EndDisabled();
         if (ImGui::Button("Rotating planets", { -1.0f, 0.0f }))
         {
-            requestScene(SceneId::Planets);
+            switchTo(scenes::PLANETS);
         }
     }
 

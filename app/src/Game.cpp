@@ -1,14 +1,14 @@
 #include "Game.h"
 
-#include "flight/DesignFile.h"
-
-#include <optional>
 #include <utility>
 
-Game::Game(engine::GameConfig config)
-    : engine::Game(std::move(config)), mBuildScene(getCamera(), mCatalog, mDesign, mSolarSystem),
-      mFlightScene(getCamera(), mDesign, mSolarSystem),
-      mPlanetsScene(getCamera())
+#include "flight/BuildScene.h"
+#include "flight/DesignFile.h"
+#include "flight/FlightScene.h"
+#include "shared/SceneNames.h"
+#include "solar/PlanetsScene.h"
+
+Game::Game(engine::GameConfig config) : engine::Game(std::move(config))
 {
 }
 
@@ -16,70 +16,19 @@ void Game::onInit()
 {
     tenth::initRocketStorage();
     mDesign = tenth::defaultRocket(mCatalog);
-    switchTo(tenth::SceneId::Build);
+    engine::SceneManager& scenes = getScenes();
+    scenes.add<tenth::BuildScene>(tenth::scenes::BUILD, mCatalog, mDesign, mSolarSystem);
+    scenes.add<tenth::FlightScene>(tenth::scenes::FLIGHT, mDesign, mSolarSystem);
+    scenes.add<tenth::PlanetsScene>(tenth::scenes::PLANETS);
+    scenes.switchTo(tenth::scenes::BUILD);
 }
 
-void Game::switchTo(tenth::SceneId id)
+void Game::onUpdate(double /*frameDt*/, double /*alpha*/)
 {
-    if (mpScene != nullptr)
-    {
-        mpScene->onExit();
-    }
-    switch (id)
-    {
-    case tenth::SceneId::Build:
-        mpScene = &mBuildScene;
-        break;
-    case tenth::SceneId::Flight:
-        mpScene = &mFlightScene;
-        break;
-    case tenth::SceneId::Planets:
-        mpScene = &mPlanetsScene;
-        break;
-    }
-    mpScene->onEnter();
-}
-
-void Game::onFixedUpdate(double dt)
-{
-    mpScene->onFixedUpdate(dt);
-}
-
-void Game::onUpdate(double frameDt, double alpha)
-{
-    // A button pressed in last frame's GUI takes effect here, before anything else runs
-    if (const std::optional<tenth::SceneId> request = mpScene->takeRequestedScene())
-    {
-        switchTo(*request);
-    }
-    mpScene->onUpdate(frameDt, alpha);
-
 #ifndef __EMSCRIPTEN__
     if (IsKeyPressed(KEY_ESCAPE))
     {
         requestQuit();
     }
 #endif
-}
-
-void Game::onDraw3D()
-{
-    mpScene->onDraw3D();
-}
-
-void Game::onDraw2D()
-{
-    mpScene->onDraw2D();
-}
-
-void Game::onGui()
-{
-    mpScene->onGui();
-}
-
-void Game::onShutdown()
-{
-    mBuildScene.onShutdown();
-    mFlightScene.onShutdown();
-    mPlanetsScene.onShutdown();
 }

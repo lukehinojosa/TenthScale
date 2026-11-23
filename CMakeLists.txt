@@ -43,6 +43,7 @@ include(cmake/Targets.cmake)
 
 add_subdirectory(libs/vendor)
 add_subdirectory(libs/cyclone)
+add_subdirectory(libs/cyclone2d)
 add_subdirectory(libs/core)
 add_subdirectory(libs/net)
 add_subdirectory(libs/ai)
@@ -62,6 +63,7 @@ endif()
 
 if(TEMPLATE_BUILD_EXAMPLES)
     add_subdirectory(examples/sandbox)
+    add_subdirectory(examples/physics2d)
 endif()
 
 if(TEMPLATE_BUILD_TESTS)

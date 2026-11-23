@@ -3,6 +3,7 @@
 #include <raylib.h>
 
 #include <cyclone/cyclone.h>
+#include <cyclone2d/core.h>
 
 // Casts keep these working when Cyclone is built with double precision
 namespace engine
@@ -15,6 +16,16 @@ namespace engine
     inline cyclone::Vector3 toCyclone(const Vector3& v)
     {
         return cyclone::Vector3(static_cast<cyclone::real>(v.x), static_cast<cyclone::real>(v.y), static_cast<cyclone::real>(v.z));
+    }
+
+    inline Vector2 toRaylib(const cyclone2d::Vector2& v)
+    {
+        return Vector2{ static_cast<float>(v.x), static_cast<float>(v.y) };
+    }
+
+    inline cyclone2d::Vector2 toCyclone(const Vector2& v)
+    {
+        return cyclone2d::Vector2(static_cast<cyclone2d::real>(v.x), static_cast<cyclone2d::real>(v.y));
     }
 
     inline Quaternion toRaylib(const cyclone::Quaternion& q)

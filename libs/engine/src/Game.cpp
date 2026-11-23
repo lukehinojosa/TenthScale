@@ -121,28 +121,38 @@ namespace engine
         mAudio.update();
         mCallbacks.update(frameDt);
 
+        mScenes.beginFrame(frameDt);
         mAccumulator += frameDt;
         while (mAccumulator >= fixedDt)
         {
+            mScenes.fixedUpdate(fixedDt);
             onFixedUpdate(fixedDt);
             mAccumulator -= fixedDt;
             mTime += fixedDt;
         }
+        mScenes.update(frameDt, mAccumulator / fixedDt);
         onUpdate(frameDt, mAccumulator / fixedDt);
+        mScenes.renderOffscreen();
         onRenderOffscreen();
 
         BeginDrawing();
         ClearBackground(mConfig.clearColor);
 
         BeginMode3D(mCamera);
+        mScenes.draw3D();
         onDraw3D();
         EndMode3D();
 
+        mScenes.draw2D();
         onDraw2D();
 
         rlImGuiBegin();
+        mScenes.gui();
         onGui();
         rlImGuiEnd();
+
+        // Over everything, GUI included, so a fade covers the whole screen
+        mScenes.drawTransition();
 
         EndDrawing();
     }
@@ -150,6 +160,7 @@ namespace engine
     void Game::shutdown()
     {
         onShutdown();
+        mScenes.unloadAll();
         mCallbacks.clear();
         mAudio.shutdown();
         rlImGuiShutdown();

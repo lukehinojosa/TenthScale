@@ -30,9 +30,12 @@ add_library(flight STATIC
     src/flight/OrbitInfo.cpp
     src/flight/BuildScene.cpp
     src/flight/FlightScene.cpp
+    src/flight/PlanetSurface.cpp
+    src/flight/SpaceSky.cpp
 )
 target_link_libraries(flight PUBLIC shared cyclone)
 template_set_warnings(flight)
+template_embed_shaders(flight ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
 
 add_executable(app
     src/main.cpp

@@ -5,40 +5,49 @@
 
 #include <raylib.h>
 
-#include <engine/Sky.h>
+#include <engine/Scene.h>
 
 #include "flight/DesignStats.h"
+#include "flight/LaunchPad.h"
 #include "flight/OrbitInfo.h"
+#include "flight/PlanetSurface.h"
 #include "flight/Rocket.h"
 #include "flight/RocketDesign.h"
+#include "flight/SpaceSky.h"
 #include "flight/SurfaceFrame.h"
 #include "flight/TimeWarp.h"
 #include "shared/OrbitCamera.h"
-#include "shared/Scene.h"
 #include "shared/SolarSystem.h"
 
 namespace tenth
 {
     // The rocket from rollout onward: held on the launch pad until launch, then flying, with the camera following it
-    class FlightScene : public Scene
+    class FlightScene : public engine::Scene
     {
     public:
-        FlightScene(Camera3D& camera, const RocketDesign& design, const SolarSystem& solarSystem);
+        FlightScene(const RocketDesign& design, const SolarSystem& solarSystem);
 
+        void onLoad() override;
+        void onUnload() override;
         void onEnter() override;
         void onExit() override;
         void onFixedUpdate(double dt) override;
         void onUpdate(double frameDt, double alpha) override;
         void onDraw3D() override;
         void onGui() override;
-        void onShutdown() override;
 
     private:
+        // How high the camera is above the reference body's surface
+        double cameraHeight() const;
+
         // Where a point near the reference body shows up on screen: measured from the rocket, in the pad's axes,
         // so the numbers stay small enough for floats even hundreds of kilometres from the planet's centre
         Vector3 toScene(const Vec3d& position) const;
 
         void drawGround() const;
+
+        // The raised hardstand with its sloped sides, the flame trench, and the service tower
+        void drawPad() const;
 
         // Draws a rocket or dropped piece where it is, turned however it's facing
         void drawRocket(const Rocket& rocket) const;
@@ -70,7 +79,6 @@ namespace tenth
         void drawGForce();
         void drawStageStack();
 
-        Camera3D& mCamera;
         const RocketDesign& mDesign;
         const SolarSystem& mSolarSystem;
         DesignStats mStats; // of what's left to burn, worked out each frame
@@ -101,6 +109,7 @@ namespace tenth
         std::vector<Puff> mPuffs;
         std::mt19937 mRandom{ 7 };
         SurfaceFrame mPad;
+        LaunchPad mLaunchPad;
         OrbitCamera mOrbit;
 
         // The camera eases to a new framing when the rocket splits, rather than jumping with its center of mass
@@ -117,10 +126,7 @@ namespace tenth
         double mPreviousNear = 0.0; // the other scenes' clip planes, put back on leaving
         double mPreviousFar = 0.0;
 
-        engine::Sky mSky; // these need the window's graphics context, so they're made on first entry
-        Model mEarthModel{};
-        Model mGroundModel{};
-        bool mSkyReady = false;
-        bool mGraphicsReady = false;
+        SpaceSky mSky;
+        PlanetSurface mPlanet;
     };
 }

@@ -38,7 +38,7 @@ function Install-WithWinget([string]$Id, [string[]]$Extra = @())
         throw "winget is not available. Install 'App Installer' from the Microsoft Store, then re-run."
     }
     Write-Host "  Installing $Id with winget..." -ForegroundColor Cyan
-    & winget install --id $Id --exact --silent --accept-package-agreements --accept-source-agreements @Extra
+    & winget install --id $Id --exact --silent --disable-interactivity --accept-package-agreements --accept-source-agreements @Extra
     # 0 is success; -1978335189 means it was already installed
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189)
     {
@@ -78,6 +78,33 @@ function Find-VisualStudio
     return (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
 }
 
+# The newest Visual Studio of any edition, whether or not it has the C++ tools
+function Find-AnyVisualStudio
+{
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (-not (Test-Path $vswhere))
+    {
+        return $null
+    }
+    $json = (& $vswhere -latest -products * -format json) -join "`n"
+    return (ConvertFrom-Json $json) | Select-Object -First 1
+}
+
+# Adds the C++ workload to an existing install through the Visual Studio Installer, which asks for admin rights
+function Add-CppWorkload($Instance)
+{
+    $setup = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\setup.exe'
+    $workload = if ($Instance.productId -eq 'Microsoft.VisualStudio.Product.BuildTools') { 'Microsoft.VisualStudio.Workload.VCTools' } else { 'Microsoft.VisualStudio.Workload.NativeDesktop' }
+    Write-Host "  Adding the C++ workload to $($Instance.displayName) (close Visual Studio first if it's open)..." -ForegroundColor Cyan
+    $arguments = @('modify', '--installPath', "`"$($Instance.installationPath)`"", '--add', $workload, '--includeRecommended', '--quiet', '--norestart')
+    $process = Start-Process $setup -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+    # 3010 means it worked but Windows wants a restart
+    if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010)
+    {
+        Write-Host "  The Visual Studio Installer failed (exit $($process.ExitCode)). Add the C++ workload from the Visual Studio Installer instead." -ForegroundColor Red
+    }
+}
+
 function Find-Emsdk
 {
     $candidates = @($EmsdkDir, $env:EMSDK, [Environment]::GetEnvironmentVariable('EMSDK', 'User'), 'C:\emsdk', (Join-Path $HOME 'tools\emsdk'))
@@ -91,45 +118,101 @@ function Find-Emsdk
     return $null
 }
 
+function Get-EmscriptenVersion([string]$Dir)
+{
+    $versionFile = if ($Dir) { Join-Path $Dir 'upstream\emscripten\emscripten-version.txt' } else { '' }
+    if ($versionFile -and (Test-Path $versionFile))
+    {
+        return (Get-Content $versionFile -Raw).Trim().Trim('"')
+    }
+    return ''
+}
+
+# Fetches emsdk itself, with git when it's already here, otherwise as a zip so it needn't wait for Git to install
+function Get-EmsdkSource([string]$Dir)
+{
+    Write-Host "  Downloading emsdk into $Dir..." -ForegroundColor Cyan
+    if (Get-Command git -ErrorAction SilentlyContinue)
+    {
+        & git clone --depth 1 --quiet https://github.com/emscripten-core/emsdk.git $Dir
+        if ($LASTEXITCODE -ne 0)
+        {
+            throw "git clone emsdk failed (exit $LASTEXITCODE)"
+        }
+        return
+    }
+    $zip = Join-Path $env:TEMP 'emsdk-main.zip'
+    $unpacked = Join-Path $env:TEMP 'emsdk-unpacked'
+    $ProgressPreference = 'SilentlyContinue' # The progress bar slows Invoke-WebRequest down many times over
+    Invoke-WebRequest 'https://github.com/emscripten-core/emsdk/archive/refs/heads/main.zip' -OutFile $zip -UseBasicParsing
+    Remove-Item $unpacked -Recurse -Force -ErrorAction SilentlyContinue
+    Expand-Archive $zip $unpacked
+    New-Item -ItemType Directory -Force (Split-Path $Dir) | Out-Null
+    Move-Item (Join-Path $unpacked 'emsdk-main') $Dir
+    Remove-Item $zip, $unpacked -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Host ""
 Write-Host "CppTemplate dependencies" -ForegroundColor Cyan
 
-Ensure-Tool 'Git' 'git' 'Git.Git'
-Ensure-Tool 'CMake' 'cmake' 'Kitware.CMake'
-Ensure-Tool 'Ninja' 'ninja' 'Ninja-build.Ninja'
-Ensure-Tool 'Python 3' 'python' 'Python.Python.3.12'
-
-$vsPath = Find-VisualStudio
-if (-not $vsPath -and -not $CheckOnly)
-{
-    Install-WithWinget 'Microsoft.VisualStudio.2022.BuildTools' @('--override', '--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended')
-    $vsPath = Find-VisualStudio
-}
-Write-Status 'MSVC (Visual Studio)' ([bool]$vsPath) ($(if ($vsPath) { $vsPath } else { 'Visual Studio 2022 Build Tools, C++ workload' }))
-
+# Emscripten is the slowest download, so it installs in the background while winget works through the rest
+$emsdkJob = $null
+$emsdkLog = Join-Path $env:TEMP 'cpptemplate-emsdk-install.log'
 if (-not $NoWeb)
 {
     $emsdk = Find-Emsdk
     if (-not $emsdk -and -not $CheckOnly)
     {
         $emsdk = if ($EmsdkDir) { $EmsdkDir } else { Join-Path $HOME 'tools\emsdk' }
-        Write-Host "  Cloning emsdk into $emsdk..." -ForegroundColor Cyan
-        & git clone --depth 1 https://github.com/emscripten-core/emsdk.git $emsdk
-        if ($LASTEXITCODE -ne 0)
+        Get-EmsdkSource $emsdk
+    }
+    if ($emsdk -and (Get-EmscriptenVersion $emsdk) -ne $EmsdkVersion -and -not $CheckOnly)
+    {
+        Write-Host "  Installing Emscripten $EmsdkVersion in the background (log: $emsdkLog)..." -ForegroundColor Cyan
+        $emsdkBat = Join-Path $emsdk 'emsdk.bat'
+        $emsdkJob = Start-Process cmd.exe -ArgumentList '/c', "`"`"$emsdkBat`" install $EmsdkVersion && `"$emsdkBat`" activate $EmsdkVersion`"" `
+            -RedirectStandardOutput $emsdkLog -RedirectStandardError "$emsdkLog.err" -NoNewWindow -PassThru
+        $null = $emsdkJob.Handle # Keeps the handle open so the exit code can be read afterwards
+    }
+}
+
+# Windows Installer runs one install at a time, so winget installs stay in sequence
+Ensure-Tool 'Git' 'git' 'Git.Git'
+Ensure-Tool 'CMake' 'cmake' 'Kitware.CMake'
+Ensure-Tool 'Ninja' 'ninja' 'Ninja-build.Ninja'
+Ensure-Tool 'Python 3' 'python' 'Python.Python.3.12'
+
+$vsPath = Find-VisualStudio
+$vsWithoutCpp = if ($vsPath) { $null } else { Find-AnyVisualStudio }
+if ($vsWithoutCpp -and -not $CheckOnly)
+{
+    Add-CppWorkload $vsWithoutCpp
+    $vsPath = Find-VisualStudio
+}
+elseif (-not $vsPath -and -not $CheckOnly)
+{
+    Install-WithWinget 'Microsoft.VisualStudio.2022.BuildTools' @('--override', '--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended')
+    $vsPath = Find-VisualStudio
+}
+$vsMissing = if ($vsWithoutCpp) { "C++ workload for $($vsWithoutCpp.installationPath)" } else { 'Visual Studio 2022 Build Tools, C++ workload' }
+Write-Status 'MSVC (Visual Studio)' ([bool]$vsPath) ($(if ($vsPath) { $vsPath } else { $vsMissing }))
+
+if (-not $NoWeb)
+{
+    if ($emsdkJob)
+    {
+        if (-not $emsdkJob.HasExited)
         {
-            throw "git clone emsdk failed (exit $LASTEXITCODE)"
+            Write-Host "  Waiting for the Emscripten install to finish..." -ForegroundColor Cyan
+        }
+        $emsdkJob.WaitForExit()
+        if ($emsdkJob.ExitCode -ne 0)
+        {
+            Get-Content $emsdkLog, "$emsdkLog.err" -Tail 20 -ErrorAction SilentlyContinue | Write-Host
+            Write-Host "  The Emscripten install failed (exit $($emsdkJob.ExitCode)). Full log: $emsdkLog" -ForegroundColor Red
         }
     }
-
-    $versionFile = if ($emsdk) { Join-Path $emsdk 'upstream\emscripten\emscripten-version.txt' } else { '' }
-    $installed = if ($versionFile -and (Test-Path $versionFile)) { (Get-Content $versionFile -Raw).Trim().Trim('"') } else { '' }
-    if ($emsdk -and $installed -ne $EmsdkVersion -and -not $CheckOnly)
-    {
-        Write-Host "  Installing Emscripten $EmsdkVersion (a few minutes)..." -ForegroundColor Cyan
-        & (Join-Path $emsdk 'emsdk.ps1') install $EmsdkVersion
-        & (Join-Path $emsdk 'emsdk.ps1') activate $EmsdkVersion
-        $installed = (Get-Content $versionFile -Raw).Trim().Trim('"')
-    }
+    $installed = Get-EmscriptenVersion $emsdk
 
     if ($emsdk -and -not $CheckOnly -and [Environment]::GetEnvironmentVariable('EMSDK', 'User') -ne $emsdk)
     {

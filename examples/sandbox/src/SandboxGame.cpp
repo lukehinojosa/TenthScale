@@ -1,5 +1,7 @@
 #include "SandboxGame.h"
 #include "GameEvents.h"
+#include "shaders/ball.frag.h"
+#include "shaders/ball.vert.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -13,6 +15,7 @@
 #include <core/EventSystem.h>
 #include <core/MemoryTracker.h>
 #include <engine/Conversions.h>
+#include <engine/DrawUtils.h>
 
 #ifdef TEMPLATE_HAS_SOCKETS
 #include <net/Serialize.h>
@@ -71,37 +74,6 @@ namespace
     constexpr Vector3 BALL_BOX_CENTER = { -26.0f, 16.0f, -8.0f };
     constexpr float BALL_BOX_HALF_SIZE = 8.0f;
 
-    // One sphere mesh drawn once per ball through instancing, coloured by height
-    const char* const BALL_VERTEX_SHADER = R"(
-in vec3 vertexPosition;
-in vec3 vertexNormal;
-in mat4 instanceTransform;
-uniform mat4 mvp;
-out vec3 fragNormal;
-out float fragHeight;
-void main()
-{
-    vec4 world = instanceTransform * vec4(vertexPosition, 1.0);
-    fragNormal = mat3(instanceTransform) * vertexNormal;
-    fragHeight = world.y;
-    gl_Position = mvp * world;
-}
-)";
-
-    const char* const BALL_FRAGMENT_SHADER = R"(
-in vec3 fragNormal;
-in float fragHeight;
-uniform vec3 sunDirection;
-uniform vec2 heightRange;
-out vec4 finalColor;
-void main()
-{
-    float t = clamp((fragHeight - heightRange.x) / (heightRange.y - heightRange.x), 0.0, 1.0);
-    vec3 base = mix(vec3(0.15, 0.45, 0.95), vec3(1.0, 0.55, 0.15), t);
-    float light = 0.3 + 0.7 * max(dot(normalize(fragNormal), normalize(sunDirection)), 0.0);
-    finalColor = vec4(base * light, 1.0);
-}
-)";
 #endif
 
 #ifdef TEMPLATE_HAS_SOCKETS
@@ -525,6 +497,7 @@ void SandboxGame::buildPlayground()
     mPhysics.bodies.clear();
     mPhysics.colliders.clear();
     mPhysics.contactGenerators.clear();
+    mPhysics.joints.clear();
     mPhysics.forces.clear();
     mPhysics.clearCoherence();
     mPlayBodies.clear();
@@ -600,6 +573,10 @@ void SandboxGame::buildPlayground()
         Vector3 position = { anchor.x + 0.75f * (i + 0.5f), anchor.y - 0.1f * i, anchor.z };
         PlaygroundBody* pLink = addPlaygroundBox(position, linkHalf, 0.4f);
         pLink->color = SKYBLUE;
+
+        // A real chain loses energy at every link, so it settles instead of swaying for minutes
+        pLink->body.setLinearDamping(0.5f);
+        pLink->body.setAngularDamping(0.5f);
         pLink->body.setOrientation(cyclone::Quaternion(0.7071f, 0.0f, 0.0f, 0.7071f));
         pLink->previousOrientation = pLink->body.getOrientation();
         auto pJoint = std::make_unique<cyclone::Joint>();
@@ -611,7 +588,7 @@ void SandboxGame::buildPlayground()
         {
             pJoint->set(&pLink->body, cyclone::Vector3(0, linkHalf.y, 0), &pPrevious->body, cyclone::Vector3(0, -linkHalf.y, 0), 0.01f);
         }
-        mPhysics.contactGenerators.push_back(pJoint.get());
+        mPhysics.joints.push_back(pJoint.get());
         mJoints.push_back(std::move(pJoint));
         pPrevious = pLink;
     }
@@ -753,6 +730,10 @@ void SandboxGame::drawPlayground()
             const cyclone::Vector3 h = static_cast<const cyclone::BoxCollider&>(*pBody->pCollider).halfSize;
             mUnitCube.transform = MatrixMultiply(MatrixScale((float)h.x * 2.0f, (float)h.y * 2.0f, (float)h.z * 2.0f), pose);
             DrawModel(mUnitCube, Vector3Zero(), 1.0f, color);
+            if (mShowWires)
+            {
+                engine::drawModelWires(mUnitCube, Vector3Zero(), 1.0f, BLACK);
+            }
             break;
         }
         case PlaygroundShape::BALL:
@@ -760,6 +741,10 @@ void SandboxGame::drawPlayground()
             const float r = (float)static_cast<const cyclone::SphereCollider&>(*pBody->pCollider).radius;
             mUnitSphere.transform = MatrixMultiply(MatrixScale(r, r, r), pose);
             DrawModel(mUnitSphere, Vector3Zero(), 1.0f, color);
+            if (mShowWires)
+            {
+                engine::drawModelWires(mUnitSphere, Vector3Zero(), 1.0f, BLACK);
+            }
             break;
         }
         case PlaygroundShape::CONVEX:
@@ -767,6 +752,10 @@ void SandboxGame::drawPlayground()
             Model& model = mConvexModels[pBody->convexModel];
             model.transform = pose;
             DrawModel(model, Vector3Zero(), 1.0f, color);
+            if (mShowWires)
+            {
+                engine::drawModelWires(model, Vector3Zero(), 1.0f, BLACK);
+            }
             break;
         }
         }
@@ -831,6 +820,8 @@ void SandboxGame::drawPlaygroundGui()
     ImGui::Checkbox("Coherence", &mPhysics.useCoherence);
     ImGui::SameLine();
     ImGui::Checkbox("Show contacts", &mShowContacts);
+    ImGui::SameLine();
+    ImGui::Checkbox("Wireframe", &mShowWires);
 }
 
 void SandboxGame::onDraw3D()
@@ -838,7 +829,7 @@ void SandboxGame::onDraw3D()
     mSky.draw(getSunDirection());
     drawScene();
 
-    // Drawn as lines rather than DrawModelWires, because WebGL has no wireframe polygon mode
+    // DrawCubeWires draws lines, which WebGL supports; DrawModelWires (or engine::drawModelWires) would add face diagonals
     rlPushMatrix();
     rlMultMatrixf(MatrixToFloatV(mCubeModel.transform).v);
     DrawCubeWires(Vector3Zero(), CUBE_HALF_SIZE * 2.0f, CUBE_HALF_SIZE * 2.0f, CUBE_HALF_SIZE * 2.0f, BLACK);
@@ -1084,7 +1075,7 @@ void SandboxGame::pollLoopback()
 #ifdef TEMPLATE_HAS_GPU_COMPUTE
 void SandboxGame::initBalls()
 {
-    Shader shader = engine::loadPortableShader(BALL_VERTEX_SHADER, BALL_FRAGMENT_SHADER);
+    Shader shader = engine::loadPortableShader(shaders::BALL_VERT, shaders::BALL_FRAG);
     // raylib 5.5 reads the per-instance matrix attribute from the model matrix slot
     shader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocationAttrib(shader, "instanceTransform");
     mBallSunLocation = GetShaderLocation(shader, "sunDirection");

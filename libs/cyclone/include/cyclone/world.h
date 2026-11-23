@@ -6,6 +6,7 @@
 
 #include "broadPhase.h"
 #include "collision.h"
+#include "joints.h"
 #include "rigidBody.h"
 #include "rigidBodyForces.h"
 #include "rigidContactResolver.h"
@@ -39,6 +40,11 @@ namespace cyclone
         std::vector<RigidBody*> bodies;
         std::vector<Collider*> colliders;
         std::vector<ContactGenerator*> contactGenerators;
+
+        // Pins solved after the contacts each frame; bodies on the same joint don't collide with each other
+        std::vector<Joint*> joints;
+        unsigned jointVelocityIterations = 10;
+        unsigned jointPositionIterations = 10;
         RigidBodyForceRegistry forces;
         RigidContactResolver resolver;
         SimultaneousContactResolver simultaneousResolver;
@@ -72,6 +78,8 @@ namespace cyclone
         unsigned generateContactsOnce();
         bool wakeTouchedSleepers(unsigned count);
         void testPair(Collider& a, Collider& b, CollisionData& data);
+        void solveJoints();
+        bool joined(const RigidBody* a, const RigidBody* b) const;
         void findPairs(std::vector<PotentialContact>& pairs);
 
         std::vector<Contact> contacts;

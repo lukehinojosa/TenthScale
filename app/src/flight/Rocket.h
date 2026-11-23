@@ -5,6 +5,7 @@
 #include <cyclone/rigidBody.h>
 #include <cyclone/rigidContactResolver.h>
 
+#include "flight/LaunchPad.h"
 #include "flight/Vehicle.h"
 #include "shared/SolarSystem.h"
 
@@ -50,6 +51,9 @@ namespace tenth
 
         // Places the rocket relative to a body, standing straight up from it and not spinning
         void place(BodyId reference, const Vec3d& position, const Vec3d& velocity);
+
+        // A pad it can stand on and land on as well as the ground; pieces that come away know it too
+        void setPad(const LaunchPad& pad) { mPad = pad; }
 
         // The built rocket: its parts, staging, mass, and inertia, plus its outline for touching the ground
         void setVehicle(const Vehicle& vehicle);
@@ -167,6 +171,7 @@ namespace tenth
         std::vector<cyclone::Contact> mContacts;
         Vehicle mVehicle;
         bool mOnGround = false;
+        LaunchPad mPad;
         double mThrust = 0.0;
         double mPressure = 0.0;
         double mDrag = 0.0;

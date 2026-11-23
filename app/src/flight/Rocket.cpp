@@ -708,14 +708,32 @@ namespace tenth
             const Vec3d local = part - mVehicle.centerOfMass;
             const Vec3d point = fromCyclone(mBody.getPointInWorldSpace(toCyclone(local)));
             const double distance = point.length();
-            const double depth = radius - distance;
-            if (distance <= 0.0 || depth < -TOUCH_DISTANCE)
+            if (distance <= 0.0)
+            {
+                continue;
+            }
+            double depth = radius - distance;
+            Vec3d normal = point / distance;
+
+            // Over the pad its surface stands in for the ground, unless the point is already below the ground
+            if (mPad.body == mReference && mPad.height > 0.0)
+            {
+                const Vec3d onPad = mPad.frame.toLocal(point);
+                const double top = mPad.heightAt(onPad.x, onPad.z);
+                if (top > 0.0 && onPad.y > -TOUCH_DISTANCE)
+                {
+                    const Vec3d facing = mPad.normalAt(onPad.x, onPad.z);
+                    depth = (top - onPad.y) * facing.y;
+                    normal = mPad.frame.toBody(facing);
+                }
+            }
+            if (depth < -TOUCH_DISTANCE)
             {
                 continue;
             }
             cyclone::Contact contact;
             contact.point = toCyclone(point);
-            contact.normal = toCyclone(point / distance);
+            contact.normal = toCyclone(normal);
             contact.penetration = depth;
             contact.body[0] = &mBody;
             contact.body[1] = nullptr;
