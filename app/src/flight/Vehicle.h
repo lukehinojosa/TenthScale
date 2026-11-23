@@ -73,6 +73,10 @@ namespace tenth
     // lit engines. rootOffset is where the new vehicle's root sat in this one's design, before the split.
     Vehicle detachBranch(Vehicle& vehicle, PartIndex index, Vec3d& rootOffset);
 
+    // The most its wheels and swivelling engines together can turn it with about each of its own axes, in newton
+    // metres, at the current throttle and air pressure. Only the wheels can roll it.
+    Vec3d turnAuthority(const Vehicle& vehicle, double pressure);
+
     // What all its reaction wheels together can turn it with about each axis, in newton metres
     double wheelTorque(const Vehicle& vehicle);
 

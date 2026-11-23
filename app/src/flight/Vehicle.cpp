@@ -204,6 +204,24 @@ namespace tenth
         return { toward.x * std::sin(angle), std::cos(angle), toward.z * std::sin(angle) };
     }
 
+    Vec3d turnAuthority(const Vehicle& vehicle, double pressure)
+    {
+        const double wheels = wheelTorque(vehicle);
+        double engines = 0.0;
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            if (!isBurning(vehicle, i))
+            {
+                continue;
+            }
+            const PartDefinition& definition = *vehicle.design.part(i).pDefinition;
+            const double thrust = engineOutput(definition, pressure).thrust * vehicle.throttle;
+            const double arm = std::abs(gimbalPivot(vehicle, i).y - vehicle.centerOfMass.y);
+            engines += thrust * std::sin(definition.gimbalRange) * arm;
+        }
+        return { wheels + engines, wheels, wheels + engines };
+    }
+
     double wheelTorque(const Vehicle& vehicle)
     {
         double total = 0.0;

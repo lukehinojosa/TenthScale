@@ -72,6 +72,11 @@ namespace tenth
         constexpr float ARC_RADIUS = 150.0f; // the throttle and climb rate arcs either side of the ball
         constexpr float ARC_WIDTH = 14.0f;
         constexpr ImVec2 ORBIT_STRIP_SIZE = { 340.0f, 50.0f };
+        constexpr float SAS_DIAL_RADIUS = 64.0f;
+        constexpr float SAS_DIAL_GAP = 290.0f; // from the navball's centre across to the dial's
+        constexpr float SAS_RING = 44.0f; // how far out the mode buttons sit
+        constexpr float SAS_BUTTON = 15.0f;
+        constexpr float SAS_CENTRE_BUTTON = 22.0f;
         constexpr double G_FORCE_SMOOTHING = 4.0; // per second: how quickly the gauge follows the felt push
         constexpr ImVec4 NAVBALL_SKY = { 70.0f, 140.0f, 225.0f, 255.0f };
         constexpr ImVec4 NAVBALL_GROUND = { 165.0f, 105.0f, 55.0f, 255.0f };
@@ -258,6 +263,106 @@ namespace tenth
                 return (int)((ground + (sky - ground) * t) * shade);
             };
             return IM_COL32(mix(NAVBALL_GROUND.x, NAVBALL_SKY.x), mix(NAVBALL_GROUND.y, NAVBALL_SKY.y), mix(NAVBALL_GROUND.z, NAVBALL_SKY.z), 255);
+        }
+
+        // The navball's middle, bottom left above the orbit strip
+        ImVec2 navballCentre()
+        {
+            return { HUD_MARGIN + ARC_RADIUS + ARC_WIDTH, (float)GetScreenHeight() - HUD_MARGIN - ORBIT_STRIP_SIZE.y - 8.0f - ARC_RADIUS * 0.85f };
+        }
+
+        ImU32 markerColor(SasMode mode)
+        {
+            switch (mode)
+            {
+            case SasMode::Prograde:
+            case SasMode::Retrograde:
+                return HUD_YELLOW;
+            case SasMode::Normal:
+            case SasMode::AntiNormal:
+                return HUD_PINK;
+            case SasMode::RadialOut:
+            case SasMode::RadialIn:
+                return HUD_CYAN;
+            default:
+                return HUD_GREEN;
+            }
+        }
+
+        const char* modeName(SasMode mode)
+        {
+            switch (mode)
+            {
+            case SasMode::Off:
+                return "Off";
+            case SasMode::Stability:
+                return "Stability";
+            case SasMode::Prograde:
+                return "Prograde";
+            case SasMode::Retrograde:
+                return "Retrograde";
+            case SasMode::Normal:
+                return "Normal";
+            case SasMode::AntiNormal:
+                return "Anti-normal";
+            case SasMode::RadialOut:
+                return "Radial out";
+            case SasMode::RadialIn:
+                return "Radial in";
+            }
+            return "";
+        }
+
+        // Each mode's symbol, size across from its middle: the orbit directions as they show on the navball, and a
+        // padlock for Stability
+        void drawMarker(ImDrawList* pList, SasMode mode, ImVec2 at, float size, ImU32 color)
+        {
+            const float s = size;
+            switch (mode)
+            {
+            case SasMode::Prograde:
+                pList->AddCircle(at, s, color, 20, 2.0f);
+                pList->AddLine(offset(at, 0.0f, -s), offset(at, 0.0f, -s * 2.0f), color, 2.0f);
+                pList->AddLine(offset(at, -s, 0.0f), offset(at, -s * 2.0f, 0.0f), color, 2.0f);
+                pList->AddLine(offset(at, s, 0.0f), offset(at, s * 2.0f, 0.0f), color, 2.0f);
+                pList->AddCircleFilled(at, 1.5f, color);
+                break;
+            case SasMode::Retrograde:
+                pList->AddCircle(at, s, color, 20, 2.0f);
+                pList->AddLine(offset(at, -s * 0.7f, -s * 0.7f), offset(at, s * 0.7f, s * 0.7f), color, 2.0f);
+                pList->AddLine(offset(at, -s * 0.7f, s * 0.7f), offset(at, s * 0.7f, -s * 0.7f), color, 2.0f);
+                break;
+            case SasMode::Normal:
+            case SasMode::AntiNormal:
+            {
+                const float flip = mode == SasMode::Normal ? 1.0f : -1.0f;
+                pList->AddTriangle(offset(at, 0.0f, -s * 1.2f * flip), offset(at, -s * 1.1f, s * 0.8f * flip), offset(at, s * 1.1f, s * 0.8f * flip), color, 2.0f);
+                pList->AddCircleFilled(at, 1.5f, color);
+                break;
+            }
+            case SasMode::RadialOut:
+            case SasMode::RadialIn:
+            {
+                pList->AddCircle(at, s, color, 20, 2.0f);
+                const float from = mode == SasMode::RadialOut ? s : s * 0.35f;
+                const float to = mode == SasMode::RadialOut ? s * 1.8f : s * 0.85f;
+                for (int corner = 0; corner < 4; corner++)
+                {
+                    const float angle = PI * 0.25f + PI * 0.5f * corner;
+                    const float c = std::cos(angle);
+                    const float d = std::sin(angle);
+                    pList->AddLine(offset(at, c * from, d * from), offset(at, c * to, d * to), color, 2.0f);
+                }
+                break;
+            }
+            case SasMode::Stability:
+                pList->AddRectFilled(offset(at, -s * 0.8f, -s * 0.1f), offset(at, s * 0.8f, s * 0.9f), color, 1.5f);
+                pList->PathArcTo(offset(at, 0.0f, -s * 0.1f), s * 0.5f, PI, PI * 2.0f, 12);
+                pList->PathStroke(color, 0, 2.0f);
+                break;
+            case SasMode::Off:
+                break;
+            }
         }
 
         // Thousands split with commas, as in 5,724
@@ -526,6 +631,10 @@ namespace tenth
             {
                 stage();
             }
+            if (IsKeyPressed(KEY_T))
+            {
+                mRocket.setSas(mRocket.sas() == SasMode::Off ? SasMode::Stability : SasMode::Off);
+            }
 
             // W and S pitch it, A and D yaw it, Q and E roll it
             auto axis = [](KeyboardKey positive, KeyboardKey negative)
@@ -717,6 +826,7 @@ namespace tenth
         drawStatusBar();
         drawClock();
         drawInstruments();
+        drawSas();
         drawOrbit();
         drawGForce();
         drawStageStack();
@@ -753,7 +863,7 @@ namespace tenth
                 requestScene(SceneId::Build);
             }
         }
-        ImGui::TextDisabled("Space stage   WASD/QE steer   Shift/Ctrl throttle   Z full   X cut   Right-drag look");
+        ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   Right-drag look");
         ImGui::End();
     }
 
@@ -779,8 +889,7 @@ namespace tenth
     void FlightScene::drawInstruments()
     {
         const float radius = NAVBALL_RADIUS;
-        const ImVec2 centre = { HUD_MARGIN + ARC_RADIUS + ARC_WIDTH,
-                                (float)GetScreenHeight() - HUD_MARGIN - ORBIT_STRIP_SIZE.y - 8.0f - ARC_RADIUS * 0.85f };
+        const ImVec2 centre = navballCentre();
         ImGui::SetNextWindowPos({ 0.0f, 0.0f }, ImGuiCond_Always);
         ImGui::SetNextWindowSize({ (float)GetScreenWidth(), (float)GetScreenHeight() }, ImGuiCond_Always);
         ImGui::Begin("Instruments", nullptr, OVERLAY_FLAGS | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoInputs);
@@ -887,22 +996,24 @@ namespace tenth
             }
         }
 
-        // Prograde is a circle with three ticks, where it's moving; retrograde, a crossed circle opposite
-        const double speed = mRocket.velocity().length();
-        ImVec2 at;
-        if (speed > 0.5 && onBall(mRocket.velocity() / speed, at))
+        // The orbit's directions, where the SAS can point the nose
+        for (SasMode mode : { SasMode::Prograde, SasMode::Retrograde, SasMode::Normal, SasMode::AntiNormal, SasMode::RadialOut, SasMode::RadialIn })
         {
-            pList->AddCircle(at, 7.0f, HUD_YELLOW, 20, 2.0f);
-            pList->AddLine(offset(at, 0.0f, -7.0f), offset(at, 0.0f, -14.0f), HUD_YELLOW, 2.0f);
-            pList->AddLine(offset(at, -7.0f, 0.0f), offset(at, -14.0f, 0.0f), HUD_YELLOW, 2.0f);
-            pList->AddLine(offset(at, 7.0f, 0.0f), offset(at, 14.0f, 0.0f), HUD_YELLOW, 2.0f);
-            pList->AddCircleFilled(at, 1.5f, HUD_YELLOW);
+            Vec3d toward;
+            ImVec2 at;
+            if (mRocket.holdDirection(mode, toward) && onBall(toward, at))
+            {
+                drawMarker(pList, mode, at, 7.0f, markerColor(mode));
+            }
         }
-        if (speed > 0.5 && onBall(mRocket.velocity() / -speed, at))
+
+        // A diamond round wherever the SAS is steering the nose
+        Vec3d held;
+        ImVec2 heldAt;
+        if (mRocket.sas() != SasMode::Off && mRocket.holdDirection(mRocket.sas(), held) && onBall(held, heldAt))
         {
-            pList->AddCircle(at, 7.0f, HUD_YELLOW, 20, 2.0f);
-            pList->AddLine(offset(at, -5.0f, -5.0f), offset(at, 5.0f, 5.0f), HUD_YELLOW, 2.0f);
-            pList->AddLine(offset(at, -5.0f, 5.0f), offset(at, 5.0f, -5.0f), HUD_YELLOW, 2.0f);
+            const ImVec2 diamond[] = { offset(heldAt, 0.0f, -13.0f), offset(heldAt, 13.0f, 0.0f), offset(heldAt, 0.0f, 13.0f), offset(heldAt, -13.0f, 0.0f) };
+            pList->AddPolyline(diamond, 4, HUD_GREEN, ImDrawFlags_Closed, 2.0f);
         }
 
         // The nose marker stays fixed in the middle while the ball turns behind it
@@ -1022,11 +1133,73 @@ namespace tenth
         text(pList, offset(centre, ARC_RADIUS + 18.0f, 2.0f), 11.0f, HUD_CYAN, "m/s");
 
         // Speed and altitude sit boxed over the sides of the ring
+        const double speed = mRocket.velocity().length();
         std::snprintf(value, sizeof(value), "%.1f", speed);
         sideBox(pList, offset(centre, -100.0f, 0.0f), HUD_YELLOW, "SURFACE", value, "m/s");
         const char* unit = "m";
         writeHeight(value, sizeof(value), std::max(0.0, mRocket.altitude(mSolarSystem)), unit);
         sideBox(pList, offset(centre, 100.0f, 0.0f), HUD_PINK, "ALTITUDE", value, unit);
+        ImGui::End();
+    }
+
+    // Right of the navball: the SAS switch in the middle of a ring of the modes it can hold, each opposite its
+    // reverse. Modes that can't be worked out right now are dimmed.
+    void FlightScene::drawSas()
+    {
+        const ImVec2 centre = offset(navballCentre(), SAS_DIAL_GAP, 20.0f);
+        const ImVec2 min = offset(centre, -SAS_DIAL_RADIUS, -SAS_DIAL_RADIUS);
+        const float size = SAS_DIAL_RADIUS * 2.0f;
+        ImGui::SetNextWindowPos(min, ImGuiCond_Always);
+        ImGui::SetNextWindowSize({ size, size + 22.0f }, ImGuiCond_Always);
+        ImGui::Begin("SAS", nullptr, OVERLAY_FLAGS);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        const bool on = mRocket.sas() != SasMode::Off;
+        pList->AddCircleFilled(centre, SAS_DIAL_RADIUS, HUD_PANEL, 64);
+        pList->AddCircle(centre, SAS_DIAL_RADIUS, on ? HUD_GREEN : HUD_EDGE, 64, 1.5f);
+
+        // A round button that shows a tooltip on hover; returns whether it was clicked
+        auto button = [&](const char* id, ImVec2 at, float radius, const char* tip)
+        {
+            ImGui::SetCursorScreenPos(offset(at, -radius, -radius));
+            const bool clicked = ImGui::InvisibleButton(id, { radius * 2.0f, radius * 2.0f });
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", tip);
+            }
+            return clicked;
+        };
+
+        struct Slot
+        {
+            SasMode mode;
+            float angle; // round the ring from the right, downward
+        };
+        const Slot slots[] = { { SasMode::Stability, -PI * 0.5f }, { SasMode::Prograde, -PI * 0.25f }, { SasMode::Retrograde, PI * 0.75f },
+                               { SasMode::Normal, 0.0f },          { SasMode::AntiNormal, PI },      { SasMode::RadialOut, PI * 0.25f },
+                               { SasMode::RadialIn, -PI * 0.75f } };
+        for (const Slot& slot : slots)
+        {
+            const ImVec2 at = offset(centre, std::cos(slot.angle) * SAS_RING, std::sin(slot.angle) * SAS_RING);
+            Vec3d toward;
+            const bool available = mRocket.holdDirection(slot.mode, toward);
+            const bool chosen = mRocket.sas() == slot.mode;
+            pList->AddCircleFilled(at, SAS_BUTTON, chosen ? IM_COL32(40, 90, 55, 255) : HUD_BOX, 24);
+            pList->AddCircle(at, SAS_BUTTON, chosen ? HUD_GREEN : HUD_DIM, 24, 1.5f);
+            drawMarker(pList, slot.mode, at, 6.0f, available ? markerColor(slot.mode) : HUD_DIM);
+            if (button(modeName(slot.mode), at, SAS_BUTTON, modeName(slot.mode)) && available)
+            {
+                mRocket.setSas(slot.mode);
+            }
+        }
+
+        pList->AddCircleFilled(centre, SAS_CENTRE_BUTTON, on ? HUD_GO : HUD_BOX, 32);
+        pList->AddCircle(centre, SAS_CENTRE_BUTTON, on ? HUD_GO_EDGE : HUD_EDGE, 32, 1.5f);
+        textCentred(pList, centre, 15.0f, on ? HUD_GO_INK : HUD_MUTED, "SAS");
+        if (button("sas", centre, SAS_CENTRE_BUTTON, "Hold steady (T)"))
+        {
+            mRocket.setSas(on ? SasMode::Off : SasMode::Stability);
+        }
+        textCentred(pList, { centre.x, centre.y + SAS_DIAL_RADIUS + 11.0f }, 12.0f, on ? HUD_GREEN : HUD_MUTED, on ? modeName(mRocket.sas()) : "SAS off");
         ImGui::End();
     }
 

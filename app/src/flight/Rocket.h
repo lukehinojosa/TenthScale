@@ -21,6 +21,20 @@ namespace tenth
         Vec3d shift; // how far the rocket's center of mass jumped as the piece left, so a view following it can stay put
     };
 
+    // What the SAS keeps the nose pointed at. Stability holds wherever it was pointing; the rest follow the orbit:
+    // along or against the velocity, square to the orbit's plane, or toward or away from the body below.
+    enum class SasMode
+    {
+        Off,
+        Stability,
+        Prograde,
+        Retrograde,
+        Normal,
+        AntiNormal,
+        RadialOut,
+        RadialIn,
+    };
+
     // The rocket in flight as one rigid body: it moves, turns, and spins under gravity and its engines, and rests on
     // the ground.
     // Position and velocity are kept relative to the body whose gravity it's in, so they stay precise and the rocket
@@ -49,7 +63,16 @@ namespace tenth
         // The reaction wheels turn it with that share of their torque, so a heavier rocket turns slower. Burning
         // engines also swivel to help pitch and yaw.
         void setSteering(const Vec3d& steering);
-        const Vec3d& steering() const { return mVehicle.steering; }
+        const Vec3d& steering() const { return mPilot; }
+
+        // The SAS steers with the same wheels and engines whenever the pilot isn't, turning no faster than it can
+        // stop again. Turning on Stability holds wherever the nose ends up once any spin has died away.
+        void setSas(SasMode mode);
+        SasMode sas() const { return mSas; }
+
+        // Where a mode would point the nose, in the reference body's axes. False when it can't be worked out, such
+        // as prograde while standing still.
+        bool holdDirection(SasMode mode, Vec3d& direction) const;
 
         // Fires the next stage: lights its engines, opens its parachutes, and lets go of whatever its decouplers
         // hold. Opening a parachute pops off any nose cone still covering it. Returns the parts it fired.
@@ -104,6 +127,7 @@ namespace tenth
     private:
         void updateReference(const SolarSystem& system, double time);
         void pushWithEngines();
+        void steerWithSas();
 
         // Burning engines lean toward the pitch and yaw being asked for, so their thrust turns the rocket the same
         // way; the rest ease back to straight
@@ -144,6 +168,10 @@ namespace tenth
         double mPressure = 0.0;
         double mDrag = 0.0;
         double mClimbRate = 0.0; // last step's, for spotting the top of the climb
+        Vec3d mPilot; // what the keys ask for
+        SasMode mSas = SasMode::Off;
+        Vec3d mHold{ 0.0, 1.0, 0.0 }; // where Stability keeps the nose
+        bool mSettling = false; // Stability follows the nose until the pilot's turn has died away
         std::vector<Rocket> mDropped;
         std::vector<Separation> mSeparations;
     };

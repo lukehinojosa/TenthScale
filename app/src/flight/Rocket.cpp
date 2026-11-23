@@ -17,6 +17,11 @@ namespace tenth
         constexpr double PIECE_FRICTION = 0.5;
         constexpr double PIECE_BOUNCE = 0.2;
         constexpr double NOSE_CONE_CHARGE = 0.4; // how big a nose cone's pop looks next to a decoupler's
+        constexpr double SAS_RESPONSE = 0.4; // seconds the SAS gives itself to reach the turn rate it wants
+        constexpr double SAS_BRAKING = 0.5; // share of its full authority the SAS plans on stopping with
+        constexpr double SAS_APPROACH = 1.0; // seconds to close what's left of a small error
+        constexpr double SETTLED_RATE = 0.005; // radians per second below which a turn counts as stopped
+        constexpr double MIN_SPEED = 0.5; // metres per second below which there's no telling which way it moves
 
         cyclone::Vector3 toCyclone(const Vec3d& v)
         {
@@ -108,7 +113,49 @@ namespace tenth
 
     void Rocket::setSteering(const Vec3d& steering)
     {
-        mVehicle.steering = { std::clamp(steering.x, -1.0, 1.0), std::clamp(steering.y, -1.0, 1.0), std::clamp(steering.z, -1.0, 1.0) };
+        mPilot = { std::clamp(steering.x, -1.0, 1.0), std::clamp(steering.y, -1.0, 1.0), std::clamp(steering.z, -1.0, 1.0) };
+    }
+
+    void Rocket::setSas(SasMode mode)
+    {
+        if (mode == mSas)
+        {
+            return;
+        }
+        mSas = mode;
+        mHold = toWorld({ 0.0, 1.0, 0.0 });
+        mSettling = true;
+    }
+
+    bool Rocket::holdDirection(SasMode mode, Vec3d& direction) const
+    {
+        const Vec3d along = velocity();
+        const Vec3d square = position().cross(along);
+        const bool moving = along.length() > MIN_SPEED;
+        const bool orbiting = moving && square.length() > MIN_SPEED * position().length();
+        switch (mode)
+        {
+        case SasMode::Off:
+            return false;
+        case SasMode::Stability:
+            direction = mHold;
+            return true;
+        case SasMode::Prograde:
+        case SasMode::Retrograde:
+            direction = along.normalized() * (mode == SasMode::Prograde ? 1.0 : -1.0);
+            return moving;
+        case SasMode::Normal:
+        case SasMode::AntiNormal:
+            direction = square.normalized() * (mode == SasMode::Normal ? 1.0 : -1.0);
+            return orbiting;
+        case SasMode::RadialOut:
+        case SasMode::RadialIn:
+            // Rising or falling straight up and down, the way away from the body is simply up
+            direction = orbiting ? along.cross(square).normalized() : position().normalized();
+            direction = direction * (mode == SasMode::RadialOut ? 1.0 : -1.0);
+            return true;
+        }
+        return false;
     }
 
     std::vector<PartIndex> Rocket::fireNextStage()
@@ -202,6 +249,8 @@ namespace tenth
         Rocket piece = *this;
         piece.mDropped.clear();
         piece.mSeparations.clear();
+        piece.mPilot = {};
+        piece.mSas = SasMode::Off;
         piece.setVehicle(branch);
         applyMass();
         const Vec3d pieceArm = toWorld(rootOffset + branch.centerOfMass - oldCenterOfMass);
@@ -325,6 +374,7 @@ namespace tenth
         mBody.setAcceleration(toCyclone(gravity));
         const double height = offset.length() - system.body(mReference).radius;
         mPressure = pressureRatio(system.body(mReference), height);
+        steerWithSas();
         swivelEngines(dt);
         pushWithEngines();
         turnWithWheels();
@@ -493,6 +543,65 @@ namespace tenth
             mBody.addForceAtBodyPoint(toCyclone(toWorld(push)), toCyclone(gimbalPivot(mVehicle, engine) - mVehicle.centerOfMass));
             mThrust += thrust;
         }
+    }
+
+    // For each axis it picks the turn rate that would still let it stop in time, and steers toward that rate.
+    // Any axis the pilot is steering on is left to them.
+    void Rocket::steerWithSas()
+    {
+        mVehicle.steering = mPilot;
+        if (mSas == SasMode::Off || mVehicle.mass <= 0.0)
+        {
+            return;
+        }
+        const Vec3d nose = toWorld({ 0.0, 1.0, 0.0 });
+        const Vec3d turning = toLocal(spin());
+        if (mSas == SasMode::Stability)
+        {
+            const bool steeringNose = mPilot.x != 0.0 || mPilot.z != 0.0;
+            const double noseRate = std::sqrt(turning.x * turning.x + turning.z * turning.z);
+            mSettling = steeringNose || (mSettling && noseRate > SETTLED_RATE);
+            if (mSettling)
+            {
+                mHold = nose;
+            }
+        }
+        Vec3d target;
+        if (!holdDirection(mSas, target))
+        {
+            target = nose;
+        }
+
+        // The turn that would carry the nose onto the target, as an axis in the rocket's own axes scaled by the angle
+        const Vec3d local = toLocal(target);
+        const double across = std::sqrt(local.x * local.x + local.z * local.z);
+        const double angle = std::atan2(across, local.y);
+        Vec3d error;
+        if (across > 1e-9)
+        {
+            error = Vec3d{ local.z, 0.0, -local.x } * (angle / across);
+        }
+        else if (local.y < 0.0)
+        {
+            error = { angle, 0.0, 0.0 };
+        }
+
+        const Vec3d authority = turnAuthority(mVehicle, mPressure);
+        const Inertia& inertia = mVehicle.inertia;
+        auto command = [&](double wrong, double rate, double torque, double resistance)
+        {
+            if (torque <= 0.0 || resistance <= 0.0)
+            {
+                return 0.0;
+            }
+            const double most = torque / resistance;
+            const double wanted = std::min(std::abs(wrong) / SAS_APPROACH, std::sqrt(2.0 * SAS_BRAKING * most * std::abs(wrong)));
+            const double target = wrong >= 0.0 ? wanted : -wanted;
+            return std::clamp((target - rate) / (most * SAS_RESPONSE), -1.0, 1.0);
+        };
+        const Vec3d sas = { command(error.x, turning.x, authority.x, inertia.xx), command(0.0, turning.y, authority.y, inertia.yy),
+                            command(error.z, turning.z, authority.z, inertia.zz) };
+        mVehicle.steering = { mPilot.x != 0.0 ? mPilot.x : sas.x, mPilot.y != 0.0 ? mPilot.y : sas.y, mPilot.z != 0.0 ? mPilot.z : sas.z };
     }
 
     // An engine below the center of mass leans opposite to one above it to turn the rocket the same way

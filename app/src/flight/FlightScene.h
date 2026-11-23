@@ -59,6 +59,7 @@ namespace tenth
         void drawStatusBar();
         void drawClock();
         void drawInstruments();
+        void drawSas();
         void drawOrbit();
         void drawGForce();
         void drawStageStack();
