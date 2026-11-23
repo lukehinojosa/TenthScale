@@ -325,6 +325,7 @@ namespace tenth
         mBody.setAcceleration(toCyclone(gravity));
         const double height = offset.length() - system.body(mReference).radius;
         mPressure = pressureRatio(system.body(mReference), height);
+        swivelEngines(dt);
         pushWithEngines();
         turnWithWheels();
         pushWithAir(airDensity(system.body(mReference), height), dt);
@@ -488,8 +489,37 @@ namespace tenth
             }
             const PlacedPart& placed = mVehicle.design.part(engine);
             const double thrust = engineOutput(*placed.pDefinition, mPressure).thrust * mVehicle.throttle;
-            mBody.addForceAtBodyPoint(toCyclone(toWorld({ 0.0, thrust, 0.0 })), toCyclone(placed.position - mVehicle.centerOfMass));
+            const Vec3d push = thrustDirection(mVehicle, engine) * thrust;
+            mBody.addForceAtBodyPoint(toCyclone(toWorld(push)), toCyclone(gimbalPivot(mVehicle, engine) - mVehicle.centerOfMass));
             mThrust += thrust;
+        }
+    }
+
+    // An engine below the center of mass leans opposite to one above it to turn the rocket the same way
+    void Rocket::swivelEngines(double dt)
+    {
+        const Vec3d& steering = mVehicle.steering;
+        for (PartIndex engine = 0; engine < mVehicle.design.partCount(); engine++)
+        {
+            const PartDefinition& definition = *mVehicle.design.part(engine).pDefinition;
+            if (!definition.isEngine())
+            {
+                continue;
+            }
+            Vec3d target;
+            if (isBurning(mVehicle, engine) && mVehicle.throttle > 0.0)
+            {
+                const double side = gimbalPivot(mVehicle, engine).y < mVehicle.centerOfMass.y ? -1.0 : 1.0;
+                target = Vec3d{ -steering.z, 0.0, steering.x } * (side * definition.gimbalRange);
+                if (target.length() > definition.gimbalRange)
+                {
+                    target = target.normalized() * definition.gimbalRange;
+                }
+            }
+            Vec3d& lean = mVehicle.gimbal[engine];
+            const Vec3d change = target - lean;
+            const double step = GIMBAL_RATE * dt;
+            lean = change.length() <= step ? target : lean + change.normalized() * step;
         }
     }
 

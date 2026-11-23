@@ -640,7 +640,7 @@ namespace tenth
         const Matrix facing = { x.x, y.x, z.x, at.x, x.y, y.y, z.y, at.y, x.z, y.z, z.z, at.z, 0.0f, 0.0f, 0.0f, 1.0f };
         rlPushMatrix();
         rlMultMatrixf(MatrixToFloat(facing));
-        drawDesign(rocket.vehicle().design, toRaylib(-rocket.vehicle().centerOfMass));
+        drawDesign(rocket.vehicle().design, toRaylib(-rocket.vehicle().centerOfMass), &rocket.vehicle().gimbal);
         drawFlames(rocket);
         drawParachutes(rocket);
         rlPopMatrix();
@@ -662,13 +662,14 @@ namespace tenth
                 continue;
             }
             const PlacedPart& placed = vehicle.design.part(i);
-            const Vec3d nozzle = placed.position - vehicle.centerOfMass - Vec3d{ 0.0, placed.shape.height * 0.5, 0.0 };
+            const Vec3d back = -thrustDirection(vehicle, i);
+            const Vec3d nozzle = gimbalPivot(vehicle, i) - vehicle.centerOfMass + back * placed.shape.height;
             const float width = (float)placed.shape.bottomDiameter;
             const float spread = (float)(1.0 - rocket.pressure() * 0.4);
             const float length = width * FLAME_LENGTH * (float)vehicle.throttle * spread;
             const Vector3 top = toRaylib(nozzle);
-            DrawCylinderEx(top, { top.x, top.y - length, top.z }, width * 0.45f, 0.0f, 12, FLAME_COLOR);
-            DrawCylinderEx(top, { top.x, top.y - length * 0.5f, top.z }, width * 0.3f, 0.0f, 12, FLAME_CORE_COLOR);
+            DrawCylinderEx(top, toRaylib(nozzle + back * length), width * 0.45f, 0.0f, 12, FLAME_COLOR);
+            DrawCylinderEx(top, toRaylib(nozzle + back * (length * 0.5)), width * 0.3f, 0.0f, 12, FLAME_CORE_COLOR);
         }
     }
 

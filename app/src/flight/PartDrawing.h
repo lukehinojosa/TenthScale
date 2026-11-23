@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <raylib.h>
 
 #include "flight/PartDefinition.h"
@@ -21,8 +23,8 @@ namespace tenth
     // The part's shape as drawn: a shrouded engine is a cylinder as wide as its top
     PartShape drawnShape(const RocketDesign& design, PartIndex index);
 
-    // Draws a whole rocket in its parts' colours, its root at offset
-    void drawDesign(const RocketDesign& design, Vector3 offset);
+    // Draws a whole rocket in its parts' colours, its root at offset. Engines lean by their gimbal, if given.
+    void drawDesign(const RocketDesign& design, Vector3 offset, const std::vector<Vec3d>* pGimbal = nullptr);
 
     // An axis-aligned box around the part, for picking it with the mouse
     BoundingBox partBounds(const PartShape& shape, Vector3 position, float angle);

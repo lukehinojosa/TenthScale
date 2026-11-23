@@ -1,5 +1,6 @@
 #include "flight/PartCatalog.h"
 
+#include <numbers>
 #include <utility>
 
 namespace tenth
@@ -43,6 +44,7 @@ namespace tenth
 
     namespace
     {
+        constexpr double DEGREES = std::numbers::pi / 180.0;
         constexpr double POD_WHEEL_TORQUE = 20000.0; // slow to swing a full stack, so the engines will need to help
 
         PartDefinition roundPart(const char* id, const char* name, PartCategory category, double height, double topDiameter,
@@ -69,10 +71,11 @@ namespace tenth
         }
 
         PartDefinition engine(const char* id, const char* name, double height, double dryMass, double thrustVacuum, double ispVacuum,
-                              double ispSeaLevel)
+                              double ispSeaLevel, double gimbalDegrees)
         {
             PartDefinition part = roundPart(id, name, PartCategory::Engine, height, 1.25, 0.9, dryMass);
             part.thrustVacuum = thrustVacuum;
+            part.gimbalRange = gimbalDegrees * DEGREES;
             part.ispVacuum = ispVacuum;
             part.ispSeaLevel = ispSeaLevel;
             return part;
@@ -113,15 +116,15 @@ namespace tenth
         catalog.add(tank("tank-medium", "Medium Tank", 2.0, 250.0, 2000.0));
         catalog.add(tank("tank-large", "Large Tank", 4.0, 500.0, 4000.0));
 
-        PartDefinition lifter = engine("engine-lifter", "Lifter Engine", 1.6, 1250.0, 215000.0, 310.0, 280.0);
+        PartDefinition lifter = engine("engine-lifter", "Lifter Engine", 1.6, 1250.0, 215000.0, 310.0, 280.0, 5.0);
         lifter.description = "Strong at sea level. Gets a rocket off the pad.";
         catalog.add(lifter);
 
-        PartDefinition heavy = engine("engine-heavy", "Heavy Lifter Engine", 2.0, 2000.0, 460000.0, 300.0, 265.0);
+        PartDefinition heavy = engine("engine-heavy", "Heavy Lifter Engine", 2.0, 2000.0, 460000.0, 300.0, 265.0, 6.0);
         heavy.description = "Huge thrust for the first stage of a big rocket. Thirsty, and too heavy to carry any higher.";
         catalog.add(heavy);
 
-        PartDefinition vacuum = engine("engine-vacuum", "Vacuum Engine", 1.2, 500.0, 60000.0, 345.0, 85.0);
+        PartDefinition vacuum = engine("engine-vacuum", "Vacuum Engine", 1.2, 500.0, 60000.0, 345.0, 85.0, 4.0);
         vacuum.description = "Weak in thick air but efficient in space. For upper stages.";
         catalog.add(vacuum);
 

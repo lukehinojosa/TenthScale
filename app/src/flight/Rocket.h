@@ -30,6 +30,7 @@ namespace tenth
     public:
         static constexpr double DECOUPLER_SPEED = 5.0; // m/s a decoupler's charge parts the two halves at
         static constexpr double NOSE_CONE_SPEED = 8.0; // the parachute shoves the cone off this fast
+        static constexpr double GIMBAL_RATE = 0.2; // radians per second an engine bell swivels
 
         Rocket();
 
@@ -45,7 +46,8 @@ namespace tenth
         double throttle() const { return mVehicle.throttle; }
 
         // How hard to turn about each of the rocket's own axes, -1 to 1: pitch about x, roll about y, and yaw about z.
-        // The reaction wheels turn it with that share of their torque, so a heavier rocket turns slower.
+        // The reaction wheels turn it with that share of their torque, so a heavier rocket turns slower. Burning
+        // engines also swivel to help pitch and yaw.
         void setSteering(const Vec3d& steering);
         const Vec3d& steering() const { return mVehicle.steering; }
 
@@ -102,6 +104,10 @@ namespace tenth
     private:
         void updateReference(const SolarSystem& system, double time);
         void pushWithEngines();
+
+        // Burning engines lean toward the pitch and yaw being asked for, so their thrust turns the rocket the same
+        // way; the rest ease back to straight
+        void swivelEngines(double dt);
         void turnWithWheels();
 
         // Every part, and any open parachute, feels the air from where it is, so fins low down steady the rocket.

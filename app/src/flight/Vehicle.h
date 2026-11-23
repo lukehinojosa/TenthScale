@@ -29,6 +29,7 @@ namespace tenth
         std::vector<bool> lit; // engines the staging key has lit
         std::vector<bool> deployed; // parachutes the staging key has released
         std::vector<double> canopy; // how far each released parachute has filled, 0 to 1
+        std::vector<Vec3d> gimbal; // how far each engine's thrust leans toward the rocket's x and z, in radians
         std::vector<PartIndex> sections; // the part starting each part's section, whose tanks its engines draw from
         double throttle = 1.0; // 0 to 1, shared by every lit engine
         Vec3d steering; // how hard the pilot is turning it about each of its own axes, -1 to 1
@@ -80,6 +81,12 @@ namespace tenth
 
     // Lit and with fuel left in its section
     bool isBurning(const Vehicle& vehicle, PartIndex engine);
+
+    // Where the engine swivels from, the middle of its top, in the design's axes
+    Vec3d gimbalPivot(const Vehicle& vehicle, PartIndex engine);
+
+    // The way the engine pushes, in the design's axes: straight up the rocket until it swivels
+    Vec3d thrustDirection(const Vehicle& vehicle, PartIndex engine);
 
     // Thinner air lets the exhaust expand more, so the same fuel flow pushes harder and lasts longer
     EngineOutput engineOutput(const PartDefinition& engine, double pressure);

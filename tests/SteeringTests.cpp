@@ -142,3 +142,109 @@ TEST_CASE("A dropped stage has no steering of its own")
         CHECK(piece.steering().lengthSquared() == 0.0);
     }
 }
+
+namespace
+{
+    PartIndex findPart(const Vehicle& vehicle, const char* id)
+    {
+        for (PartIndex i = 0; i < vehicle.design.partCount(); i++)
+        {
+            if (vehicle.design.part(i).pDefinition->id == id)
+            {
+                return i;
+            }
+        }
+        return NO_PART;
+    }
+
+    // The two-stage rocket coasting in space with its booster engine lit
+    struct BurnTest : SpaceTest
+    {
+        PartIndex lifter = NO_PART;
+        double range = catalog().find("engine-lifter")->gimbalRange;
+
+        BurnTest() : SpaceTest(twoStageRocket(catalog()))
+        {
+            rocket.fireNextStage();
+            lifter = findPart(rocket.vehicle(), "engine-lifter");
+        }
+
+        const Vec3d& lean() const
+        {
+            return rocket.vehicle().gimbal[lifter];
+        }
+    };
+}
+
+TEST_CASE("Every engine can swivel, the big lifters furthest")
+{
+    CHECK(catalog().find("engine-vacuum")->gimbalRange > 0.0);
+    CHECK(catalog().find("engine-heavy")->gimbalRange > catalog().find("engine-lifter")->gimbalRange);
+    CHECK(catalog().find("pod")->gimbalRange == 0.0);
+}
+
+TEST_CASE("A burning engine below the center of mass leans the opposite way to the turn, at its own pace, up to its range")
+{
+    BurnTest test;
+    test.rocket.setSteering({ 1.0, 0.0, 0.0 });
+    test.run(0.1);
+    CHECK(test.lean().length() == doctest::Approx(Rocket::GIMBAL_RATE * 0.1));
+    test.run(1.0);
+    CHECK(test.lean().z == doctest::Approx(-test.range));
+    CHECK(test.lean().x == doctest::Approx(0.0));
+
+    // Its push now leans sideways, but none of it is lost
+    const Vec3d direction = thrustDirection(test.rocket.vehicle(), test.lifter);
+    CHECK(direction.length() == doctest::Approx(1.0));
+    CHECK(direction.z == doctest::Approx(-std::sin(test.range)));
+}
+
+TEST_CASE("Swivelled engines turn the rocket the way it's steered, far quicker than the wheels alone")
+{
+    const Vec3d axes[] = { { 1.0, 0.0, 0.0 }, { -1.0, 0.0, 0.0 }, { 0.0, 0.0, 1.0 }, { 0.0, 0.0, -1.0 } };
+    for (const Vec3d& axis : axes)
+    {
+        BurnTest test;
+        test.rocket.setSteering(axis);
+        test.run(1.0);
+        const Vehicle& vehicle = test.rocket.vehicle();
+        const double wheelsAlone = wheelTorque(vehicle) / vehicle.inertia.xx;
+        CHECK(test.spinAbout(axis) > wheelsAlone * 5.0);
+    }
+}
+
+TEST_CASE("Steering both ways at once leans the engine no further than its range")
+{
+    BurnTest test;
+    test.rocket.setSteering({ 1.0, 0.0, 1.0 });
+    test.run(2.0);
+    CHECK(test.lean().length() == doctest::Approx(test.range));
+}
+
+TEST_CASE("Rolling, or steering with the engine off, leaves the bell straight")
+{
+    BurnTest rolling;
+    rolling.rocket.setSteering({ 0.0, 1.0, 0.0 });
+    rolling.run(1.0);
+    CHECK(rolling.lean().length() == 0.0);
+
+    SpaceTest unlit(twoStageRocket(catalog()));
+    unlit.rocket.setSteering({ 1.0, 0.0, 0.0 });
+    unlit.run(1.0);
+    for (const Vec3d& lean : unlit.rocket.vehicle().gimbal)
+    {
+        CHECK(lean.length() == 0.0);
+    }
+}
+
+TEST_CASE("Letting go of the keys eases the bell back to straight")
+{
+    BurnTest test;
+    test.rocket.setSteering({ 0.0, 0.0, 1.0 });
+    test.run(1.0);
+    test.rocket.setSteering({});
+    test.run(0.1);
+    CHECK(test.lean().length() == doctest::Approx(test.range - Rocket::GIMBAL_RATE * 0.1));
+    test.run(1.0);
+    CHECK(test.lean().length() == 0.0);
+}

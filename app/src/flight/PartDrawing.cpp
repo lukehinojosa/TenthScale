@@ -65,7 +65,7 @@ namespace tenth
         return shape;
     }
 
-    void drawDesign(const RocketDesign& design, Vector3 offset)
+    void drawDesign(const RocketDesign& design, Vector3 offset, const std::vector<Vec3d>* pGimbal)
     {
         for (PartIndex i = 0; i < design.partCount(); i++)
         {
@@ -73,7 +73,22 @@ namespace tenth
             const Color color = categoryColor(placed.pDefinition->category);
             const Vector3 position = { offset.x + (float)placed.position.x, offset.y + (float)placed.position.y,
                                        offset.z + (float)placed.position.z };
+            const Vec3d lean = pGimbal != nullptr ? (*pGimbal)[i] : Vec3d{};
+            const double angle = lean.length();
+
+            // A shrouded engine stays straight inside its shroud; others turn about the middle of their top
+            if (angle <= 0.0 || design.isShrouded(i))
+            {
+                drawPart(drawnShape(design, i), position, (float)placed.angle, color, ColorBrightness(color, -0.5f));
+                continue;
+            }
+            const float top = position.y + (float)placed.shape.height * 0.5f;
+            rlPushMatrix();
+            rlTranslatef(position.x, top, position.z);
+            rlRotatef((float)angle * RAD2DEG, (float)(lean.z / angle), 0.0f, (float)(-lean.x / angle));
+            rlTranslatef(-position.x, -top, -position.z);
             drawPart(drawnShape(design, i), position, (float)placed.angle, color, ColorBrightness(color, -0.5f));
+            rlPopMatrix();
         }
     }
 

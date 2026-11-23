@@ -87,6 +87,7 @@ namespace tenth
             {
                 ImGui::Text("Thrust: %.0f kN in vacuum", part.thrustVacuum / 1000.0);
                 ImGui::Text("Efficiency: %.0f s at sea level, %.0f s in vacuum", part.ispSeaLevel, part.ispVacuum);
+                ImGui::Text("Gimbal: %.0f degrees each way", part.gimbalRange * RAD2DEG);
             }
             ImGui::PopTextWrapPos();
             ImGui::EndTooltip();
