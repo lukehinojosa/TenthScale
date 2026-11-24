@@ -22,8 +22,9 @@ namespace tenth
         Vec3d shift; // how far the rocket's center of mass jumped as the piece left, so a view following it can stay put
     };
 
-    // What the SAS keeps the nose pointed at. Stability holds wherever it was pointing; the rest follow the orbit:
-    // along or against the velocity, square to the orbit's plane, or toward or away from the body below.
+    // What the SAS keeps the nose pointed at. Stability holds wherever it was pointing; the next six follow the orbit:
+    // along or against the velocity, square to the orbit's plane, or toward or away from the body below. The last two
+    // point at or away from a target.
     enum class SasMode
     {
         Off,
@@ -34,6 +35,8 @@ namespace tenth
         AntiNormal,
         RadialOut,
         RadialIn,
+        Target,
+        AntiTarget,
     };
 
     // The rocket in flight as one rigid body: it moves, turns, and spins under gravity and its engines, and rests on
@@ -74,9 +77,16 @@ namespace tenth
         void setSas(SasMode mode);
         SasMode sas() const { return mSas; }
 
-        // Where a mode would point the nose, in the reference body's axes; false only with the SAS off. Standing
-        // still, prograde is up; climbing straight up, normal is square to the way the rocket faces across.
+        // Where a mode would point the nose, in the reference body's axes; false with the SAS off, or for the target
+        // modes with no target. Standing still, prograde is up; climbing straight up, normal is square to the way the
+        // rocket faces across.
         bool holdDirection(SasMode mode, Vec3d& direction) const;
+
+        // The way to whatever the pilot has picked as a target, in the reference body's axes, kept up to date by the
+        // flight. Clearing it while the SAS points at it leaves the SAS holding steady.
+        void setTarget(const Vec3d& direction);
+        void clearTarget();
+        bool hasTarget() const { return mHasTarget; }
 
         // Fires the next stage: lights its engines, opens its parachutes, and lets go of whatever its decouplers
         // hold. Opening a parachute pops off any nose cone still covering it. Returns the parts it fired.
@@ -179,6 +189,8 @@ namespace tenth
         Vec3d mPilot; // what the keys ask for
         SasMode mSas = SasMode::Off;
         Vec3d mHold{ 0.0, 1.0, 0.0 }; // where Stability keeps the nose
+        Vec3d mTarget;
+        bool mHasTarget = false;
         bool mSettling = false; // Stability follows the nose until the pilot's turn has died away
         Vec3d mPath{ 0.0, 1.0, 0.0 }; // prograde
         Vec3d mPlane{ 0.0, 0.0, 1.0 }; // normal: square to the path, along the orbit's turn

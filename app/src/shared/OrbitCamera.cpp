@@ -32,6 +32,14 @@ namespace tenth
             mLifting = false;
         }
 
+        // Left upside down by free tilt, it's the same spot seen from the far side, so it's turned the right way up.
+        // This comes before the drag, so a fast drag past the limit clamps instead of flipping round.
+        if (!freeTilt && std::cos(pitch) < 0.0f)
+        {
+            pitch = std::remainder(PI - pitch, 2.0f * PI);
+            yaw += PI;
+        }
+
         const Vector2 mouseDelta = GetMouseDelta();
         if (mOrbiting)
         {
@@ -62,13 +70,6 @@ namespace tenth
             pitch = std::remainder(pitch, 2.0f * PI);
             apply(camera);
             return;
-        }
-
-        // Past straight up or down is the same spot seen upside down, so it's turned the right way up from the far side
-        if (std::cos(pitch) < 0.0f)
-        {
-            pitch = std::remainder(PI - pitch, 2.0f * PI);
-            yaw += PI;
         }
 
         // The tilt that would put the camera at the floor or ceiling height becomes the limit

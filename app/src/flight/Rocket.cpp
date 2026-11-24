@@ -176,7 +176,8 @@ namespace tenth
 
     void Rocket::setSas(SasMode mode)
     {
-        if (mode == mSas)
+        const bool needsTarget = mode == SasMode::Target || mode == SasMode::AntiTarget;
+        if (mode == mSas || (needsTarget && !mHasTarget))
         {
             return;
         }
@@ -212,8 +213,31 @@ namespace tenth
         case SasMode::RadialIn:
             direction = mPlane.cross(mPath).normalized();
             break;
+        case SasMode::Target:
+        case SasMode::AntiTarget:
+            if (!mHasTarget)
+            {
+                return false;
+            }
+            direction = mode == SasMode::Target ? mTarget : -mTarget;
+            break;
         }
         return true;
+    }
+
+    void Rocket::setTarget(const Vec3d& direction)
+    {
+        mTarget = direction.normalized();
+        mHasTarget = true;
+    }
+
+    void Rocket::clearTarget()
+    {
+        mHasTarget = false;
+        if (mSas == SasMode::Target || mSas == SasMode::AntiTarget)
+        {
+            setSas(SasMode::Stability);
+        }
     }
 
     std::vector<PartIndex> Rocket::fireNextStage()
@@ -309,6 +333,7 @@ namespace tenth
         piece.mSeparations.clear();
         piece.mPilot = {};
         piece.mSas = SasMode::Off;
+        piece.mHasTarget = false;
         piece.setVehicle(branch);
         applyMass();
         const Vec3d pieceArm = toWorld(rootOffset + branch.centerOfMass - oldCenterOfMass);

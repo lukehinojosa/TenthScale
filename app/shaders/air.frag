@@ -2,6 +2,9 @@
 in vec3 viewDirection;
 
 uniform vec3 cameraPosition;
+uniform float sunDisc; // 0 where the Sun is drawn as a body instead
+uniform vec4 discs[4]; // bodies drawn behind the air: the way to each, and the cosine of half its size across
+uniform int discCount;
 
 out vec4 finalColor;
 void main()
@@ -19,12 +22,22 @@ void main()
     }
     vec3 color = 1.0 - exp(-light);
     float brightness = dot(color, vec3(0.3, 0.5, 0.2));
-    if (open)
+    bool body = false;
+    for (int i = 0; i < 4; i++)
+    {
+        if (i < discCount && dot(dir, discs[i].xyz) > discs[i].w)
+        {
+            body = true;
+        }
+    }
+    if (open && !body)
     {
         float angle = acos(clamp(dot(dir, sunDirection), -1.0, 1.0));
         float disc = 1.0 - smoothstep(0.012, 0.016, angle);
-        color = min(color + vec3(1.0, 0.95, 0.85) * through * disc * 3.0, vec3(1.0));
+        color = min(color + vec3(1.0, 0.95, 0.85) * through * disc * sunDisc * 3.0, vec3(1.0));
     }
     float stars = (through.r + through.g + through.b) / 3.0 * clamp(1.0 - brightness * 3.0, 0.0, 1.0);
-    finalColor = vec4(color, stars);
+    // A body behind shows through by however much light gets through the air, unlike the stars the day sky hides
+    float behind = (through.r + through.g + through.b) / 3.0;
+    finalColor = vec4(color, body ? behind : stars);
 }

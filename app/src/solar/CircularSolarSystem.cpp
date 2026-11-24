@@ -6,11 +6,19 @@
 
 namespace tenth
 {
+    namespace
+    {
+        constexpr double EARTH_START_ANGLE = 2.28; // radians round the Sun
+        constexpr double MOON_START_ANGLE = 3.8; // radians round Earth
+    }
+
     CircularSolarSystem::CircularSolarSystem()
     {
         const BodyId sun = addBody("Sun", NO_BODY, 6.9634e8, 1.32712440018e20, 0.0, 0.0, 0.0);
-        const BodyId earth = addBody("Earth", sun, 6.371e6, 3.986004418e14, 1.495978707e11, 0.0, 1.0e5);
-        addBody("Moon", earth, 1.7374e6, 4.9048695e12, 3.844e8, 0.0, 0.0);
+        // Earth starts round the Sun where the Sun stands mid-morning over Florida, lighting the launch pad
+        const BodyId earth = addBody("Earth", sun, 6.371e6, 3.986004418e14, 1.495978707e11, EARTH_START_ANGLE, 1.0e5);
+        // The Moon starts half lit, a quarter of the way up the western sky from the pad
+        addBody("Moon", earth, 1.7374e6, 4.9048695e12, 3.844e8, MOON_START_ANGLE, 0.0);
     }
 
     BodyId CircularSolarSystem::addBody(const char* name, BodyId parent, double realRadius, double realMu, double realOrbitRadius,

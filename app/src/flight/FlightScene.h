@@ -8,7 +8,9 @@
 #include <engine/Scene.h>
 
 #include "flight/DesignStats.h"
+#include "flight/Globe.h"
 #include "flight/LaunchPad.h"
+#include "flight/MapView.h"
 #include "flight/OrbitInfo.h"
 #include "flight/PlanetSurface.h"
 #include "flight/Rocket.h"
@@ -46,6 +48,17 @@ namespace tenth
 
         void drawGround() const;
 
+        // The way to the Sun in the scene's axes, from the body the rocket is around
+        Vector3 sunDirection() const;
+        Vector3 sunFrom(BodyId id) const;
+
+        // M swaps between following the rocket and the map
+        void toggleMap();
+        MapView::Flight mapFlight() const;
+
+        // Keeps the rocket's idea of where the target is up to date, and drops a target the rocket has arrived at
+        void updateTarget();
+
         // The raised hardstand with its sloped sides, the flame trench, and the service tower
         void drawPad() const;
 
@@ -78,6 +91,7 @@ namespace tenth
         void drawOrbit();
         void drawGForce();
         void drawStageStack();
+        void drawGameView();
 
         const RocketDesign& mDesign;
         const SolarSystem& mSolarSystem;
@@ -128,5 +142,12 @@ namespace tenth
 
         SpaceSky mSky;
         PlanetSurface mPlanet;
+        BodyGlobes mGlobes; // every body but Earth, shared with the map
+        Vector3 mSun{ 0.0f, 1.0f, 0.0f };
+
+        MapView mMap;
+        bool mMapOpen = false;
+        bool mMapFresh = true; // not yet opened this flight, so it starts framed on the rocket's orbit
+        BodyId mTarget = NO_BODY; // picked on the map
     };
 }

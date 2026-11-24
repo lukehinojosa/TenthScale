@@ -36,7 +36,6 @@ namespace tenth
         constexpr float TRENCH_LENGTH = 150.0f * (float)FEET; // of the opening across the top
         constexpr Vector3 TOWER_POSITION = { -10.0f, 0.0f, -3.4f }; // on the trench's west edge, behind the rocket from the camera
         constexpr float TOWER_WIDTH = 1.4f;
-        constexpr Vector3 SUN_DIRECTION = { 0.45f, 0.75f, 0.48f };
         constexpr Color GROUND_COLOR = { 74, 96, 62, 255 };
         constexpr Color PAD_COLOR = { 150, 148, 140, 255 };
         constexpr Color PAD_SIDE_COLOR = { 96, 112, 74, 255 }; // grassed over
@@ -74,6 +73,7 @@ namespace tenth
         constexpr ImU32 HUD_BLUE = IM_COL32(90, 150, 255, 255);
         constexpr ImU32 HUD_ORANGE = IM_COL32(255, 150, 40, 255);
         constexpr ImU32 HUD_RED = IM_COL32(240, 90, 80, 255);
+        constexpr ImU32 HUD_PURPLE = IM_COL32(190, 110, 255, 255);
         constexpr ImU32 HUD_GO = IM_COL32(60, 210, 100, 255);
         constexpr ImU32 HUD_GO_EDGE = IM_COL32(150, 255, 170, 255);
         constexpr ImU32 HUD_GO_INK = IM_COL32(10, 70, 30, 255);
@@ -83,6 +83,7 @@ namespace tenth
         constexpr float ARC_WIDTH = 14.0f;
         constexpr ImVec2 ORBIT_STRIP_SIZE = { 340.0f, 50.0f };
         constexpr ImVec2 CLOCK_SIZE = { 300.0f, 80.0f };
+        constexpr ImVec2 GAME_VIEW_SIZE = { 104.0f, 52.0f };
         constexpr float PAUSE_RADIUS = 15.0f;
         constexpr float WARP_ARROW = 7.0f; // half the height of each time warp arrow
         constexpr float WARP_SPACING = 21.0f;
@@ -109,7 +110,8 @@ namespace tenth
                                                    ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
 
         constexpr double NEAR_PLANE = 0.1;
-        constexpr double FAR_PLANE = 5.0e6; // past the far side of Earth from low orbit
+        constexpr double FAR_PLANE = 1.0e13; // past the Sun, so every body fits in the view
+        constexpr double GROUND_SLACK = 1000.0; // metres the rocket moves before the ground patch under it is rebuilt
 
         ImVec2 offset(ImVec2 a, float x, float y)
         {
@@ -286,6 +288,14 @@ namespace tenth
             return { HUD_MARGIN + ARC_RADIUS + ARC_WIDTH, (float)GetScreenHeight() - HUD_MARGIN - ORBIT_STRIP_SIZE.y - 8.0f - ARC_RADIUS * 0.85f };
         }
 
+        // The clock's top left: centred along the bottom, unless that would run it into the SAS control tab on a narrow
+        // window
+        ImVec2 clockCorner()
+        {
+            const float clear = navballCentre().x + SAS_DIAL_OFFSET.x + SAS_TAB_SIZE.x * 0.5f + HUD_MARGIN;
+            return { std::max(((float)GetScreenWidth() - CLOCK_SIZE.x) * 0.5f, clear), (float)GetScreenHeight() - CLOCK_SIZE.y - HUD_MARGIN };
+        }
+
         ImU32 markerColor(SasMode mode)
         {
             switch (mode)
@@ -299,6 +309,9 @@ namespace tenth
             case SasMode::RadialOut:
             case SasMode::RadialIn:
                 return HUD_CYAN;
+            case SasMode::Target:
+            case SasMode::AntiTarget:
+                return HUD_PURPLE;
             default:
                 return HUD_GREEN;
             }
@@ -324,12 +337,16 @@ namespace tenth
                 return "Radial out";
             case SasMode::RadialIn:
                 return "Radial in";
+            case SasMode::Target:
+                return "Target";
+            case SasMode::AntiTarget:
+                return "Anti-target";
             }
             return "";
         }
 
-        // Each mode's symbol, size across from its middle: the orbit directions as they show on the navball, and a
-        // padlock for Stability
+        // Each mode's symbol, size across from its middle: the orbit and target directions as they show on the navball,
+        // and a padlock for Stability
         void drawMarker(ImDrawList* pList, SasMode mode, ImVec2 at, float size, ImU32 color)
         {
             const float s = size;
@@ -393,6 +410,30 @@ namespace tenth
                     pList->AddLine(offset(at, c * s * 1.7f, d * s * 1.7f), offset(at, c * s * 0.3f, d * s * 0.3f), color, 2.0f);
                 }
                 break;
+            case SasMode::Target:
+            case SasMode::AntiTarget:
+            {
+                // A ring with a dot for toward or a cross for away, and four ticks round it, turned for away
+                const bool away = mode == SasMode::AntiTarget;
+                pList->AddCircle(at, s * 0.85f, color, 20, 2.0f);
+                if (away)
+                {
+                    pList->AddLine(offset(at, -s * 0.55f, -s * 0.55f), offset(at, s * 0.55f, s * 0.55f), color, 2.0f);
+                    pList->AddLine(offset(at, -s * 0.55f, s * 0.55f), offset(at, s * 0.55f, -s * 0.55f), color, 2.0f);
+                }
+                else
+                {
+                    pList->AddCircleFilled(at, 2.0f, color);
+                }
+                for (int side = 0; side < 4; side++)
+                {
+                    const float angle = PI * 0.5f * side + (away ? PI * 0.25f : 0.0f);
+                    const float c = std::cos(angle);
+                    const float d = std::sin(angle);
+                    pList->AddLine(offset(at, c * s * 1.15f, d * s * 1.15f), offset(at, c * s * 1.6f, d * s * 1.6f), color, 2.0f);
+                }
+                break;
+            }
             case SasMode::Stability:
                 pList->PathLineTo(offset(at, -s * 0.55f, s * 0.2f));
                 pList->PathArcTo(offset(at, 0.0f, -s * 0.25f), s * 0.55f, PI, PI * 2.0f, 12);
@@ -459,12 +500,15 @@ namespace tenth
         const SurfaceFrame site = SurfaceFrame::below(SurfaceFrame::direction(PAD_LATITUDE, PAD_LONGITUDE), earth.radius);
         mSky.init();
         mPlanet.init(site, earth.radius, earth.atmosphereHeight, GROUND_COLOR);
+        mGlobes.init(mSolarSystem);
+        mMap.init(mSolarSystem);
     }
 
     void FlightScene::onUnload()
     {
         mSky.unload();
         mPlanet.unload();
+        mGlobes.unload();
     }
 
     // The rocket rolls out as built and stands on top of pad 39A with its tanks full
@@ -480,6 +524,10 @@ namespace tenth
         mLaunched = false;
         mDebris.clear();
         mPuffs.clear();
+        mMapOpen = false;
+        mMapFresh = true;
+        mTarget = NO_BODY;
+        mRocket.clearTarget();
         const Vec3d site = SurfaceFrame::direction(PAD_LATITUDE, PAD_LONGITUDE);
         mPad = SurfaceFrame::below(site, radius);
         mLaunchPad.body = earth;
@@ -538,6 +586,7 @@ namespace tenth
     {
         const Vec3d before = mRocket.velocity();
         const BodyId reference = mRocket.reference();
+        updateTarget();
         mRocket.step(dt, mSolarSystem, mTime);
         collectDropped();
         updateDebris(dt);
@@ -731,6 +780,10 @@ namespace tenth
             {
                 mRocket.setSas(mRocket.sas() == SasMode::Off ? SasMode::Stability : SasMode::Off);
             }
+            if (IsKeyPressed(KEY_M))
+            {
+                toggleMap();
+            }
 
             // Period and comma speed time up and slow it down, slash returns to real time, and P pauses
             if (IsKeyPressed(KEY_PERIOD) && mLaunched)
@@ -762,6 +815,18 @@ namespace tenth
             mRocket.setSteering({});
         }
 
+        updateTarget();
+        mSun = sunDirection();
+
+        // A body without its own planet drawing gets a fine patch of ground under the rocket, rebuilt as it moves on
+        const BodyId around = mRocket.reference();
+        if (!mGlobes.usesPlanet(around))
+        {
+            const double radius = mSolarSystem.body(around).radius;
+            const Vec3d under = bodyAxes(mSolarSystem, around, mTime).toBody(mRocket.position());
+            mGlobes.placeGround(around, under, radius, std::max(GROUND_SLACK, 0.25 * (under.length() - radius)));
+        }
+
         const Vehicle& vehicle = mRocket.vehicle();
         const double middle = (vehicle.design.highestPoint() + vehicle.design.lowestPoint()) * 0.5;
         const Vector3 target = toRaylib(mPad.rotate(mRocket.toWorld({ 0.0, middle - vehicle.centerOfMass.y, 0.0 })));
@@ -790,6 +855,12 @@ namespace tenth
         mOrbit.freeTilt = mRocket.position().length() - radius > space;
         const double ground = radius + (mRocket.reference() == mLaunchPad.body ? mLaunchPad.heightAt(over.x, over.z) : 0.0);
         mOrbit.minCameraHeight = Vector3RotateByQuaternion(toScene(mRocket.position().normalized() * ground), toOrbit).y + 0.5f;
+        // The map has its own camera; this one waits, still following, to pick up again when the map closes
+        if (mMapOpen)
+        {
+            mMap.update(getCamera(), mapFlight(), (float)frameDt);
+            return;
+        }
         if (mZoomTarget > 0.0f)
         {
             mOrbit.distance += (mZoomTarget - mOrbit.distance) * follow;
@@ -815,6 +886,73 @@ namespace tenth
         collectDropped();
     }
 
+    Vector3 FlightScene::sunDirection() const
+    {
+        return sunFrom(mRocket.reference());
+    }
+
+    Vector3 FlightScene::sunFrom(BodyId id) const
+    {
+        BodyId star = id;
+        while (mSolarSystem.body(star).parent != NO_BODY)
+        {
+            star = mSolarSystem.body(star).parent;
+        }
+        const Vec3d toward = mSolarSystem.positionAt(star, mTime) - mSolarSystem.positionAt(id, mTime);
+        if (toward.lengthSquared() <= 0.0)
+        {
+            return toRaylib(mPad.rotate({ 0.0, 1.0, 0.0 }));
+        }
+        return toRaylib(mPad.rotate(toward.normalized()));
+    }
+
+    void FlightScene::toggleMap()
+    {
+        mMapOpen = !mMapOpen;
+        if (mMapOpen && mMapFresh)
+        {
+            mMap.reset(mapFlight());
+            mMapFresh = false;
+        }
+        if (!mMapOpen)
+        {
+            rlSetClipPlanes(NEAR_PLANE, FAR_PLANE);
+        }
+    }
+
+    MapView::Flight FlightScene::mapFlight() const
+    {
+        MapView::Flight flight;
+        flight.pSystem = &mSolarSystem;
+        flight.time = mTime;
+        flight.reference = mRocket.reference();
+        flight.position = mRocket.position();
+        flight.velocity = mRocket.velocity();
+        for (const Debris& debris : mDebris)
+        {
+            flight.debris.push_back(debris.rocket.position());
+        }
+        return flight;
+    }
+
+    void FlightScene::updateTarget()
+    {
+        if (mTarget == mRocket.reference())
+        {
+            mTarget = NO_BODY;
+        }
+        if (mTarget == NO_BODY)
+        {
+            if (mRocket.hasTarget())
+            {
+                mRocket.clearTarget();
+            }
+            return;
+        }
+        const Vec3d target = mSolarSystem.positionAt(mTarget, mTime) - mSolarSystem.positionAt(mRocket.reference(), mTime);
+        mRocket.setTarget(target - mRocket.position());
+    }
+
     Vector3 FlightScene::toScene(const Vec3d& position) const
     {
         return toRaylib(mPad.rotate(position - mRocket.position()));
@@ -827,32 +965,119 @@ namespace tenth
         return at.length() - mSolarSystem.body(mRocket.reference()).radius;
     }
 
-    // The stars and the air behind everything, then the planet seen through the air
+    // The stars and the nearest air behind everything, then every planet and moon from the farthest in. At these
+    // distances depth can't tell them apart, so each hides what's behind it by being drawn later.
     void FlightScene::drawGround() const
     {
-        const BodyInfo& body = mSolarSystem.body(mRocket.reference());
-        const double height = cameraHeight();
+        const BodyId reference = mRocket.reference();
+        const Vec3d home = mSolarSystem.positionAt(reference, mTime);
+        const Vector3 camera = getCamera().position;
+        const Vec3d eye = mRocket.position() + mPad.toBody({ camera.x, camera.y, camera.z });
+        const auto centreOf = [&](BodyId id)
+        {
+            return mSolarSystem.positionAt(id, mTime) - home; // from the reference body, like the rocket
+        };
+
+        // The sky's air is the nearest that has any, so Earth's still glows seen from the Moon
+        BodyId airBody = reference;
+        double airDistance = DBL_MAX;
+        for (BodyId id = 0; id < mSolarSystem.bodyCount(); id++)
+        {
+            const double distance = (centreOf(id) - eye).length();
+            if (mSolarSystem.body(id).atmosphereHeight > 0.0 && distance < airDistance)
+            {
+                airBody = id;
+                airDistance = distance;
+            }
+        }
+        const BodyInfo& air = mSolarSystem.body(airBody);
         SpaceSky::View sky;
         sky.axes = mPad;
-        sky.centre = toScene({});
-        sky.camera = getCamera().position;
-        sky.sun = SUN_DIRECTION;
-        sky.radius = body.radius;
-        sky.atmosphereHeight = body.atmosphereHeight;
-        sky.cameraHeight = height;
-        mSky.draw(sky);
+        sky.centre = toScene(centreOf(airBody));
+        sky.camera = camera;
+        sky.sun = sunFrom(airBody);
+        sky.radius = air.radius;
+        sky.atmosphereHeight = air.atmosphereHeight;
+        sky.cameraHeight = (eye - centreOf(airBody)).length() - air.radius;
 
-        PlanetSurface::View view;
-        view.axes = mPad;
-        view.centre = sky.centre;
-        view.camera = sky.camera;
-        view.sun = SUN_DIRECTION;
-        view.cameraHeight = height;
-        mPlanet.draw(view);
+        // The Sun stays the sky's bright disc, tinted by the air, so only planets and moons are drawn
+        std::vector<BodyId> order;
+        for (BodyId id = 0; id < mSolarSystem.bodyCount(); id++)
+        {
+            if (mSolarSystem.body(id).parent != NO_BODY)
+            {
+                order.push_back(id);
+            }
+        }
+        std::sort(order.begin(), order.end(),
+                  [&](BodyId a, BodyId b) { return (centreOf(a) - eye).lengthSquared() > (centreOf(b) - eye).lengthSquared(); });
+
+        // Bodies beyond the air's planet are drawn before its air, so they're seen through it like the stars
+        mSky.drawStars(sky);
+        bool airDrawn = false;
+        for (BodyId id : order)
+        {
+            const BodyInfo& info = mSolarSystem.body(id);
+            const Vec3d centre = centreOf(id);
+            const Vector3 sun = sunFrom(id);
+            const double distance = (centre - eye).length();
+            const bool beyond = id != airBody && distance > airDistance;
+            if (beyond && sky.discCount < SpaceSky::MAX_DISCS)
+            {
+                const Vector3 toward = Vector3Normalize(toScene(centre) - camera);
+                const float across = (float)std::cos(std::asin(std::min(info.radius / distance, 1.0)));
+                sky.discs[sky.discCount++] = { toward.x, toward.y, toward.z, across };
+            }
+            if (!beyond && !airDrawn)
+            {
+                rlEnableDepthTest();
+                mSky.drawAir(sky);
+                airDrawn = true;
+            }
+            rlDrawRenderBatchActive();
+            rlDisableDepthTest();
+            if (mGlobes.usesPlanet(id))
+            {
+                // Only the body the rocket is around gets its patch of ground near the pad
+                PlanetSurface::View view;
+                view.axes = mPad;
+                view.centre = toScene(centre);
+                view.camera = camera;
+                view.sun = sun;
+                view.cameraHeight = (eye - centre).length() - info.radius;
+                view.ground = id == reference;
+                mPlanet.draw(view);
+                continue;
+            }
+            const BodyAxes axes = bodyAxes(mSolarSystem, id, mTime);
+            const auto turn = [&](const Vec3d& v)
+            {
+                return mPad.rotate(axes.fromBody(v));
+            };
+            const double r = info.radius;
+            mGlobes.drawGlobe(id, placedMatrix(turn({ r, 0.0, 0.0 }), turn({ 0.0, r, 0.0 }), turn({ 0.0, 0.0, r }), toScene(centre)), sun);
+            if (id == reference && mGlobes.groundBody() == id)
+            {
+                // The patch under the rocket covers the coarse sphere, and the rocket and everything after it can stand on it
+                rlEnableDepthTest();
+                const SurfaceFrame& site = mGlobes.groundSite();
+                const Vector3 at = toScene(axes.fromBody(site.origin));
+                mGlobes.drawGround(placedMatrix(turn(site.east), turn(site.up), turn(site.south), at), sun);
+            }
+        }
+        rlEnableDepthTest();
+        if (!airDrawn)
+        {
+            mSky.drawAir(sky);
+        }
     }
 
     void FlightScene::drawPad() const
     {
+        if (mRocket.reference() != mLaunchPad.body)
+        {
+            return;
+        }
         const Vector3 pad = toScene(mPad.origin);
         const float height = (float)mLaunchPad.height;
         const float halfWidth = (float)mLaunchPad.halfWidth;
@@ -865,7 +1090,7 @@ namespace tenth
                                  pad + Vector3{ halfWidth, height, halfLength }, pad + Vector3{ halfWidth, height, -halfLength } };
         const Vector3 foot[4] = { pad + Vector3{ -footWidth, -PAD_BURY, -footLength }, pad + Vector3{ -footWidth, -PAD_BURY, footLength },
                                   pad + Vector3{ footWidth, -PAD_BURY, footLength }, pad + Vector3{ footWidth, -PAD_BURY, -footLength } };
-        const Vector3 sun = Vector3Normalize(SUN_DIRECTION);
+        const Vector3 sun = Vector3Normalize(mSun);
         for (int i = 0; i < 4; i++)
         {
             const int j = (i + 1) % 4;
@@ -905,6 +1130,11 @@ namespace tenth
 
     void FlightScene::onDraw3D()
     {
+        if (mMapOpen)
+        {
+            mMap.draw(getCamera(), mapFlight(), mPlanet, mSky, mGlobes);
+            return;
+        }
         drawGround();
         drawPad();
 
@@ -1000,6 +1230,11 @@ namespace tenth
     void FlightScene::onGui()
     {
         mStats = computeStats(mRocket.vehicle(), mSolarSystem.surfaceGravity(mRocket.reference()));
+        if (mMapOpen)
+        {
+            mMap.drawOverlay(getCamera(), mapFlight(), mTarget);
+            updateTarget();
+        }
         drawStatusBar();
         drawClock();
         drawInstruments();
@@ -1009,6 +1244,7 @@ namespace tenth
         drawOrbit();
         drawGForce();
         drawStageStack();
+        drawGameView();
     }
 
     // Top left: where the rocket is, from the body it's around out to the one that body orbits, and the way back
@@ -1042,7 +1278,19 @@ namespace tenth
                 switchTo(scenes::BUILD);
             }
         }
-        ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   , . / warp   P pause   Right-drag look");
+        if (mTarget != NO_BODY)
+        {
+            // How far off the target is, and how fast that gap is closing
+            const Vec3d targetPosition = mSolarSystem.positionAt(mTarget, mTime) - mSolarSystem.positionAt(mRocket.reference(), mTime);
+            const Vec3d targetVelocity = mSolarSystem.velocityAt(mTarget, mTime) - mSolarSystem.velocityAt(mRocket.reference(), mTime);
+            const Vec3d gap = targetPosition - mRocket.position();
+            const double closing = (mRocket.velocity() - targetVelocity).dot(gap.normalized());
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(HUD_PURPLE), "Target");
+            ImGui::SameLine();
+            ImGui::Text("%s   %s km   %s %s m/s", mSolarSystem.body(mTarget).name.c_str(), grouped(gap.length() / 1000.0).c_str(),
+                        closing >= 0.0 ? "closing" : "opening", grouped(std::abs(closing)).c_str());
+        }
+        ImGui::TextDisabled("Space stage   WASD/QE steer   T SAS   Shift/Ctrl throttle   Z full   X cut   , . / warp   P pause   M map   Right-drag look");
         ImGui::End();
     }
 
@@ -1050,9 +1298,7 @@ namespace tenth
     // to the chosen rate. The caption shows the rate, and the rate really reached when the computer can't keep up.
     void FlightScene::drawClock()
     {
-        // Centred, unless that would run it into the SAS control tab on a narrow window
-        const float clear = navballCentre().x + SAS_DIAL_OFFSET.x + SAS_TAB_SIZE.x * 0.5f + HUD_MARGIN;
-        const ImVec2 min = { std::max(((float)GetScreenWidth() - CLOCK_SIZE.x) * 0.5f, clear), (float)GetScreenHeight() - CLOCK_SIZE.y - HUD_MARGIN };
+        const ImVec2 min = clockCorner();
         const ImVec2 max = offset(min, CLOCK_SIZE.x, CLOCK_SIZE.y);
         ImGui::SetNextWindowPos(min, ImGuiCond_Always);
         ImGui::SetNextWindowSize(CLOCK_SIZE, ImGuiCond_Always);
@@ -1251,8 +1497,9 @@ namespace tenth
             }
         }
 
-        // The orbit's directions, where the SAS can point the nose
-        for (SasMode mode : { SasMode::Prograde, SasMode::Retrograde, SasMode::Normal, SasMode::AntiNormal, SasMode::RadialOut, SasMode::RadialIn })
+        // The orbit's directions and the target's, where the SAS can point the nose
+        for (SasMode mode : { SasMode::Prograde, SasMode::Retrograde, SasMode::Normal, SasMode::AntiNormal, SasMode::RadialOut, SasMode::RadialIn,
+                              SasMode::Target, SasMode::AntiTarget })
         {
             Vec3d toward;
             ImVec2 at;
@@ -1457,7 +1704,8 @@ namespace tenth
         ImGui::End();
     }
 
-    // Under the dial: Stability, and the modes that will aim at a planned maneuver or another craft once those exist
+    // Under the dial: Stability, toward and away from the target, and a mode that will aim at a planned maneuver once
+    // those exist
     void FlightScene::drawSasControl()
     {
         const ImVec2 dial = offset(navballCentre(), SAS_DIAL_OFFSET.x, SAS_DIAL_OFFSET.y);
@@ -1471,7 +1719,7 @@ namespace tenth
         panel(pList, min, max, HUD_EDGE);
         caption(pList, min, max, chosen != SasMode::Off ? modeName(chosen) : "SAS OFF");
 
-        // The symbols for aiming at a maneuver or another craft, drawn here since those aren't modes yet
+        // The symbol for aiming at a maneuver, drawn here since that isn't a mode yet
         auto maneuver = [&](ImVec2 at, ImU32 color)
         {
             pList->AddCircle(at, 6.0f, color, 20, 2.0f);
@@ -1480,32 +1728,16 @@ namespace tenth
                 pList->AddLine(offset(at, std::cos(angle) * 6.0f, std::sin(angle) * 6.0f), offset(at, std::cos(angle) * 11.0f, std::sin(angle) * 11.0f), color, 3.0f);
             }
         };
-        auto target = [&](ImVec2 at, ImU32 color, bool away)
-        {
-            pList->AddCircle(at, 6.0f, color, 20, 2.0f);
-            if (away)
-            {
-                pList->AddLine(offset(at, -4.0f, -4.0f), offset(at, 4.0f, 4.0f), color, 2.0f);
-                pList->AddLine(offset(at, -4.0f, 4.0f), offset(at, 4.0f, -4.0f), color, 2.0f);
-            }
-            else
-            {
-                pList->AddCircleFilled(at, 2.0f, color);
-            }
-            for (int side = 0; side < 4; side++)
-            {
-                const float angle = PI * 0.5f * side + (away ? PI * 0.25f : 0.0f);
-                pList->AddLine(offset(at, std::cos(angle) * 8.0f, std::sin(angle) * 8.0f), offset(at, std::cos(angle) * 11.0f, std::sin(angle) * 11.0f), color, 2.0f);
-            }
-        };
-
-        const char* tips[] = { "Stability: hold the current heading", "Maneuver: needs a planned maneuver", "Target: needs a target",
-                               "Anti-target: needs a target" };
+        const bool targeted = mRocket.hasTarget();
+        const char* tips[] = { "Stability: hold the current heading", "Maneuver: needs a planned maneuver",
+                               targeted ? "Target: point at the target" : "Target: pick a target on the map (M)",
+                               targeted ? "Anti-target: point away from the target" : "Anti-target: pick a target on the map (M)" };
+        const SasMode modes[] = { SasMode::Stability, SasMode::Off, SasMode::Target, SasMode::AntiTarget };
         const float width = (SAS_TAB_SIZE.x - 16.0f) / 4.0f;
         for (int i = 0; i < 4; i++)
         {
             const ImVec2 at = { min.x + 8.0f + width * (i + 0.5f), min.y + 19.0f };
-            const bool picked = i == 0 && chosen == SasMode::Stability;
+            const bool picked = modes[i] != SasMode::Off && chosen == modes[i];
             pList->AddRectFilled(offset(at, -width * 0.5f + 2.0f, -14.0f), offset(at, width * 0.5f - 2.0f, 14.0f), picked ? IM_COL32(30, 70, 45, 255) : HUD_BOX, 4.0f);
             pList->AddRect(offset(at, -width * 0.5f + 2.0f, -14.0f), offset(at, width * 0.5f - 2.0f, 14.0f), picked ? HUD_GREEN : HUD_DIM, 4.0f, 0, picked ? 2.0f : 1.0f);
             if (i == 0)
@@ -1518,13 +1750,13 @@ namespace tenth
             }
             else
             {
-                target(at, HUD_DIM, i == 3);
+                drawMarker(pList, modes[i], at, MARKER_SIZE, targeted ? HUD_PURPLE : HUD_DIM);
             }
             ImGui::SetCursorScreenPos(offset(at, -width * 0.5f + 2.0f, -14.0f));
             ImGui::PushID(i);
-            if (ImGui::InvisibleButton("mode", { width - 4.0f, 28.0f }) && i == 0)
+            if (ImGui::InvisibleButton("mode", { width - 4.0f, 28.0f }) && modes[i] != SasMode::Off)
             {
-                mRocket.setSas(SasMode::Stability);
+                mRocket.setSas(modes[i]);
             }
             ImGui::PopID();
             if (ImGui::IsItemHovered())
@@ -1749,6 +1981,53 @@ namespace tenth
         if (ImGui::InvisibleButton("go", { width, 70.0f }) && canStage)
         {
             stage();
+        }
+        ImGui::End();
+    }
+
+    // Right of the clock: a button for the view following the rocket and one for the map, the current one lit
+    void FlightScene::drawGameView()
+    {
+        const ImVec2 clock = clockCorner();
+        const ImVec2 min = { clock.x + CLOCK_SIZE.x + 8.0f, (float)GetScreenHeight() - GAME_VIEW_SIZE.y - HUD_MARGIN };
+        const ImVec2 max = offset(min, GAME_VIEW_SIZE.x, GAME_VIEW_SIZE.y);
+        ImGui::SetNextWindowPos(min, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(GAME_VIEW_SIZE, ImGuiCond_Always);
+        ImGui::Begin("Game view", nullptr, OVERLAY_FLAGS);
+        ImDrawList* pList = ImGui::GetWindowDrawList();
+        panel(pList, min, max, HUD_EDGE);
+        caption(pList, min, max, "GAME VIEW");
+        const float width = (GAME_VIEW_SIZE.x - 16.0f) / 2.0f;
+        for (int i = 0; i < 2; i++)
+        {
+            const bool map = i == 1;
+            const bool picked = map == mMapOpen;
+            const ImVec2 at = { min.x + 8.0f + width * (i + 0.5f), min.y + 19.0f };
+            const ImVec2 corner = offset(at, -width * 0.5f + 2.0f, -14.0f);
+            pList->AddRectFilled(corner, offset(at, width * 0.5f - 2.0f, 14.0f), picked ? IM_COL32(30, 70, 45, 255) : HUD_BOX, 4.0f);
+            pList->AddRect(corner, offset(at, width * 0.5f - 2.0f, 14.0f), picked ? HUD_GREEN : HUD_DIM, 4.0f, 0, picked ? 2.0f : 1.0f);
+            const ImU32 ink = picked ? HUD_GREEN : HUD_MUTED;
+            if (map)
+            {
+                // A planet with an orbit round it
+                pList->AddCircleFilled(at, 4.0f, ink, 16);
+                pList->AddEllipse(at, { 11.0f, 5.0f }, ink, -0.35f, 24, 1.5f);
+            }
+            else
+            {
+                drawPointer(pList, at, -PI * 0.5f, 22.0f, ink, ink);
+            }
+            ImGui::SetCursorScreenPos(corner);
+            ImGui::PushID(i);
+            if (ImGui::InvisibleButton("view", { width - 4.0f, 28.0f }) && !picked)
+            {
+                toggleMap();
+            }
+            ImGui::PopID();
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", map ? "Map (M)" : "Flight (M)");
+            }
         }
         ImGui::End();
     }

@@ -19,6 +19,7 @@ namespace tenth
             Vector3 camera;
             Vector3 sun;
             double cameraHeight = 0.0; // above the surface, worked out in doubles where floats would lose it
+            bool ground = true; // off to draw just the whole planet, hiding what's behind it, as on the map
         };
 
         // Loads the maps and builds the meshes for a body of this radius with the ground patch centred on site.
@@ -26,7 +27,7 @@ namespace tenth
         void init(const SurfaceFrame& site, double radius, double atmosphereHeight, Color localGround);
         void unload();
 
-        // The sphere draws without depth so the patch, and everything after, cover it
+        // With the ground, the sphere draws without depth so the patch, and everything after, cover it
         void draw(const View& view) const;
 
     private:

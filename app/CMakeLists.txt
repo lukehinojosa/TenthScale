@@ -28,10 +28,13 @@ add_library(flight STATIC
     src/flight/PartDrawing.cpp
     src/flight/StageSymbol.cpp
     src/flight/OrbitInfo.cpp
+    src/flight/OrbitPath.cpp
     src/flight/BuildScene.cpp
     src/flight/FlightScene.cpp
     src/flight/PlanetSurface.cpp
     src/flight/SpaceSky.cpp
+    src/flight/Globe.cpp
+    src/flight/MapView.cpp
 )
 target_link_libraries(flight PUBLIC shared cyclone)
 template_set_warnings(flight)

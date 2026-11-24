@@ -12,6 +12,8 @@ namespace tenth
     class SpaceSky
     {
     public:
+        static constexpr int MAX_DISCS = 4;
+
         // The scene as the sky needs it, all in the scene's axes
         struct View
         {
@@ -22,11 +24,21 @@ namespace tenth
             double radius = 0.0;
             double atmosphereHeight = 0.0;
             double cameraHeight = 0.0; // above the surface, worked out in doubles where floats would lose it
+            bool sunDisc = true; // off where the Sun is drawn as a body of its own, as on the map
+
+            // Bodies drawn between the stars and the air, seen through it: the way to each, and the cosine of
+            // half its size across. The air leaves them showing where it would hide the stars.
+            Vector4 discs[MAX_DISCS]{};
+            int discCount = 0;
         };
 
         void init();
         void unload();
+
+        // The stars then the air; drawStars and drawAir split it for bodies to go between
         void draw(const View& view) const;
+        void drawStars(const View& view) const;
+        void drawAir(const View& view) const;
 
     private:
         Model mCube{};

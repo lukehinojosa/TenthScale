@@ -76,6 +76,13 @@ namespace tenth
 
     void SpaceSky::draw(const View& view) const
     {
+        drawStars(view);
+        drawAir(view);
+    }
+
+    // Seen from inside the cube, so its faces are back faces; nothing writes depth, so the scene draws over it
+    void SpaceSky::drawStars(const View& view) const
+    {
         if (!mReady)
         {
             return;
@@ -83,18 +90,37 @@ namespace tenth
         setVector(mStarShader, "bodyEast", toVector(view.axes.east));
         setVector(mStarShader, "bodyUp", toVector(view.axes.up));
         setVector(mStarShader, "bodySouth", toVector(view.axes.south));
-        setVector(mAirShader, "planetCentre", view.centre);
-        setVector(mAirShader, "sunDirection", Vector3Normalize(view.sun));
-        setVector(mAirShader, "cameraPosition", view.camera);
-        const float world[4] = { (float)view.radius, (float)view.atmosphereHeight, (float)view.cameraHeight, 0.0f };
-        SetShaderValue(mAirShader, GetShaderLocation(mAirShader, "world"), world, SHADER_UNIFORM_VEC4);
-
-        // Seen from inside the cube, so its faces are back faces; nothing writes depth, so the scene draws over it
         rlDrawRenderBatchActive();
         rlDisableBackfaceCulling();
         rlDisableDepthMask();
         mCube.materials[0].shader = mStarShader;
         DrawModel(mCube, Vector3Zero(), 1.0f, WHITE);
+        rlEnableDepthMask();
+        rlEnableBackfaceCulling();
+    }
+
+    void SpaceSky::drawAir(const View& view) const
+    {
+        if (!mReady)
+        {
+            return;
+        }
+        setVector(mAirShader, "planetCentre", view.centre);
+        setVector(mAirShader, "sunDirection", Vector3Normalize(view.sun));
+        setVector(mAirShader, "cameraPosition", view.camera);
+        const float world[4] = { (float)view.radius, (float)view.atmosphereHeight, (float)view.cameraHeight, 0.0f };
+        SetShaderValue(mAirShader, GetShaderLocation(mAirShader, "world"), world, SHADER_UNIFORM_VEC4);
+        const float disc = view.sunDisc ? 1.0f : 0.0f;
+        SetShaderValue(mAirShader, GetShaderLocation(mAirShader, "sunDisc"), &disc, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(mAirShader, GetShaderLocation(mAirShader, "discCount"), &view.discCount, SHADER_UNIFORM_INT);
+        if (view.discCount > 0)
+        {
+            SetShaderValueV(mAirShader, GetShaderLocation(mAirShader, "discs"), view.discs, SHADER_UNIFORM_VEC4, view.discCount);
+        }
+
+        rlDrawRenderBatchActive();
+        rlDisableBackfaceCulling();
+        rlDisableDepthMask();
         rlSetBlendFactors(RL_ONE, RL_SRC_ALPHA, RL_FUNC_ADD);
         BeginBlendMode(BLEND_CUSTOM);
         mCube.materials[0].shader = mAirShader;
