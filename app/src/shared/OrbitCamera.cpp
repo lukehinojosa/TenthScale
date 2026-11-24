@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include <imgui.h>
+#include <raymath.h>
 
 namespace tenth
 {
@@ -34,7 +35,9 @@ namespace tenth
         const Vector2 mouseDelta = GetMouseDelta();
         if (mOrbiting)
         {
-            yaw -= mouseDelta.x * orbitSensitivity;
+            // Upside down, the screen's left and right are swapped, so turning is too
+            const float turn = std::cos(pitch) < 0.0f ? -1.0f : 1.0f;
+            yaw -= mouseDelta.x * orbitSensitivity * turn;
             pitch += mouseDelta.y * orbitSensitivity;
         }
         if (mLifting)
@@ -53,6 +56,20 @@ namespace tenth
 
         distance = std::clamp(distance, minDistance, maxDistance);
         focus.y = std::clamp(focus.y, minFocusHeight, maxFocusHeight);
+
+        if (freeTilt)
+        {
+            pitch = std::remainder(pitch, 2.0f * PI);
+            apply(camera);
+            return;
+        }
+
+        // Past straight up or down is the same spot seen upside down, so it's turned the right way up from the far side
+        if (std::cos(pitch) < 0.0f)
+        {
+            pitch = std::remainder(PI - pitch, 2.0f * PI);
+            yaw += PI;
+        }
 
         // The tilt that would put the camera at the floor or ceiling height becomes the limit
         const float lowest = std::asin(std::clamp((minCameraHeight - focus.y) / distance, -1.0f, 1.0f));
@@ -75,9 +92,11 @@ namespace tenth
         const Vector3 right = { std::cos(yaw), 0.0f, -std::sin(yaw) };
         const Vector3 target = { focus.x - right.x * slide, focus.y, focus.z - right.z * slide };
 
-        camera.target = target;
-        camera.position = { target.x + offset.x, target.y + offset.y, target.z + offset.z };
-        camera.up = { 0.0f, 1.0f, 0.0f };
+        camera.target = Vector3RotateByQuaternion(target, frame);
+        camera.position = Vector3RotateByQuaternion({ target.x + offset.x, target.y + offset.y, target.z + offset.z }, frame);
+        // Up tips over with the tilt, so the view rolls smoothly through straight up and down
+        const Vector3 up = { -std::sin(pitch) * std::sin(yaw), std::cos(pitch), -std::sin(pitch) * std::cos(yaw) };
+        camera.up = Vector3RotateByQuaternion(up, frame);
         camera.projection = CAMERA_PERSPECTIVE;
     }
 }

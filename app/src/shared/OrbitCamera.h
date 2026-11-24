@@ -26,6 +26,14 @@ namespace tenth
         float liftSpeed = 0.6f; // share of the distance per second with W/S
         bool liftWithKeys = true; // off where W/S are needed for something else
 
+        // Lets the tilt carry on over the top and underneath, turning upside down, with no floor or ceiling. Turning it
+        // off rights the view again.
+        bool freeTilt = false;
+
+        // How the orbit's own axes sit in the scene. The focus and the height limits are measured along them, so a
+        // scene whose "up" turns can tilt the whole orbit to match.
+        Quaternion frame = { 0.0f, 0.0f, 0.0f, 1.0f };
+
         // Pixels panels cover on each side, so the focus shows in the middle of what's left of the screen
         float leftInset = 0.0f;
         float rightInset = 0.0f;

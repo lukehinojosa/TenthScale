@@ -54,6 +54,7 @@ namespace tenth
         constexpr int SPARK_COUNT = 30; // for a decoupler; smaller charges make fewer
         constexpr int SMOKE_COUNT = 14;
         constexpr float CAMERA_EASE = 2.5f; // per second: how quickly the camera closes the gap to its new framing
+        constexpr double FREE_LOOK_SHARE = 0.01; // of the body's radius: how high space starts where there's no air
         constexpr double DEBRIS_SETTLE_TIME = 8.0; // seconds lying still before a dropped piece is cleared away
         constexpr double DEBRIS_RANGE = 40.0e3; // metres from the rocket past which a dropped piece is forgotten
         constexpr double THROTTLE_RATE = 0.5; // share of full throttle per second while Shift or Ctrl is held
@@ -500,6 +501,7 @@ namespace tenth
         mOrbit.distance = std::max(14.0f, height * 1.8f);
         mOrbit.yaw = 0.6f;
         mOrbit.pitch = 0.15f;
+        mOrbit.frame = QuaternionIdentity();
         mZoomTarget = 0.0f;
         mFramedHeight = height;
         mSnapCamera = true;
@@ -767,14 +769,27 @@ namespace tenth
         mSnapCamera = false;
         mFocus = { mFocus.x + (target.x - mFocus.x) * follow, mFocus.y + (target.y - mFocus.y) * follow,
                    mFocus.z + (target.z - mFocus.z) * follow };
-        mOrbit.focus = mFocus;
-        mOrbit.minFocusHeight = mFocus.y;
-        mOrbit.maxFocusHeight = mFocus.y;
+        // The orbit's up turns with the rocket's own up as it travels round the planet, so the camera keeps circling
+        // above the ground wherever it is. Turning by the least amount each frame keeps the view steady over the poles.
+        const Vector3 up = toRaylib(mPad.rotate(mRocket.position().normalized()));
+        const Vector3 orbitUp = Vector3RotateByQuaternion({ 0.0f, 1.0f, 0.0f }, mOrbit.frame);
+        mOrbit.frame = QuaternionNormalize(QuaternionMultiply(QuaternionFromVector3ToVector3(orbitUp, up), mOrbit.frame));
+        const Quaternion toOrbit = QuaternionInvert(mOrbit.frame);
+
+        const Vector3 focus = Vector3RotateByQuaternion(mFocus, toOrbit);
+        mOrbit.focus = focus;
+        mOrbit.minFocusHeight = focus.y;
+        mOrbit.maxFocusHeight = focus.y;
         // The ground right under the rocket, or the pad's top, since far downrange the planet curves away below it
-        const double radius = mSolarSystem.body(mRocket.reference()).radius;
+        const BodyInfo& body = mSolarSystem.body(mRocket.reference());
+        const double radius = body.radius;
         const Vec3d over = mPad.toLocal(mRocket.position());
+
+        // Out of the air the camera can turn all the way round the rocket, since there's no ground nearby to stay above
+        const double space = std::max(body.atmosphereHeight, radius * FREE_LOOK_SHARE);
+        mOrbit.freeTilt = mRocket.position().length() - radius > space;
         const double ground = radius + (mRocket.reference() == mLaunchPad.body ? mLaunchPad.heightAt(over.x, over.z) : 0.0);
-        mOrbit.minCameraHeight = toScene(mRocket.position().normalized() * ground).y + 0.5f;
+        mOrbit.minCameraHeight = Vector3RotateByQuaternion(toScene(mRocket.position().normalized() * ground), toOrbit).y + 0.5f;
         if (mZoomTarget > 0.0f)
         {
             mOrbit.distance += (mZoomTarget - mOrbit.distance) * follow;
